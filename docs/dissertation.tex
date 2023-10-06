@@ -1,12 +1,96 @@
 \documentclass{report}
 
 \usepackage{microtype}
+\usepackage{hyperref}
+\usepackage{listings}
+\usepackage{algpseudocode}
+\usepackage{xcolor}
+
+\definecolor{codegreen}{rgb}{0,0.6,0}
+\definecolor{codegray}{rgb}{0.5,0.5,0.5}
+\definecolor{codepurple}{rgb}{0.58,0,0.82}
+\definecolor{backcolour}{rgb}{0.95,0.95,0.92}
+
+\lstdefinestyle{mystyle}{
+    backgroundcolor=\color{backcolour},
+    commentstyle=\color{codegreen},
+    keywordstyle=\color{magenta},
+    numberstyle=\tiny\color{codegray},
+    stringstyle=\color{codepurple},
+    basicstyle=\ttfamily\footnotesize,
+    breakatwhitespace=false,
+    breaklines=true,
+    captionpos=b,
+    keepspaces=true,
+    numbers=left,
+    numbersep=5pt,
+    showspaces=false,
+    showstringspaces=false,
+    showtabs=false,
+    tabsize=2
+}
+
+\lstset{style=mystyle}
 
 \title{Implementing UNIX with Effects Handlers}
 \author{Ramsay Carslaw}
 
 \begin{document}
 
+
 \maketitle
+
+\tableofcontents
+
+\chapter{Introduction}
+
+\chapter{Background}
+
+\section{Algebraic Effects and Effect Handlers}
+
+Algebraic effects and their corresponding handlers \cite{plotkin2009handlers}
+\cite{pretnar2015introduction} are a programming paradigm that when paired
+together offers a novel way to compose programs. When programs are written that
+are `black boxes', that is to say their outputs are defined entirely by their
+inputs and all functions are pure computation \cite{hughes1989functional}, it is
+safe to make assumptions about the inputs. Assumptions like an age will always
+be given as an integer or all strings will not exceed the length allocated for
+them. When programs interact with the real world it is no longer safe to make
+these assumptions. To handle these `side effects' most modern languages
+introduce the concept of an exception like the below example:
+
+\begin{lstlisting}
+  firstName: String = input(``Enter your first name: '')
+  try {
+    print(``Hello, '' + firstName)
+  } catch InvalidCharacter {
+    error(``Invalid Character in first name!'')
+  }
+  print(``Unreachable with invalid character'')
+\end{lstlisting}
+
+Instead it is possible to define \texttt{InvalidCharacter} as an effect with a
+handler.
+
+\begin{lstlisting}
+  effect InvalidCharacter: () -> String
+\end{lstlisting}
+
+\section{\textsc{UNIX}}
+
+\textsc{Unix} \cite{ritchie1978unix} is an operating system designed and
+implemented by Dennis M. Ritchie and Ken Thompson at AT\&T's Bell Labs in 1974.
+It provides a file system (directories, file protection etc.), a shell,
+processes (pipe, fork etc) and a userspace. Since it's first release it has been
+reimplemented for a variety of systems.
+
+\chapter{Methods}
+
+\chapter{Results}
+
+\chapter{Conclusion}
+
+\bibliographystyle{unsrt}
+\bibliography{diss}
 
 \end{document}

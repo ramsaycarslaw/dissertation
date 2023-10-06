@@ -85,13 +85,8 @@ std::string read(std::string fname)
 
 void write(std::string fname)
 {
-  eff::invoke_command(Write{{}});
+  return eff::invoke_command(Write{{}, fname});
 }
-
-
-///////////////////////////////////////////////////////////////
-//                      Main                                 //
-///////////////////////////////////////////////////////////////
 
 int main()
 {
