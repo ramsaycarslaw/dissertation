@@ -1,0 +1,37 @@
+exit
+clear
+desserts : [Text]
+["a"] ++ ["b"]
+add
+update
+update
+clear
+add
+update
+clear
+add
+update
+add
+clear
+!(whoami Root)
+clear
+update
+clear
+!(whoami Root)
+handle '(whoami Root) with whoamiHandler
+'(whoami Root)
+add
+clear
+run
+add
+update
+add
+load unix.u
+add
+add
+add
+quit
+add
+quit
+q
+project.create unix

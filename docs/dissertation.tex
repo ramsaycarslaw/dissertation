@@ -56,25 +56,33 @@ inputs and all functions are pure computation \cite{hughes1989functional}, it is
 safe to make assumptions about the inputs. Assumptions like an age will always
 be given as an integer or all strings will not exceed the length allocated for
 them. When programs interact with the real world it is no longer safe to make
-these assumptions. To handle these `side effects' most modern languages
-introduce the concept of an exception like the below example:
+these assumptions. Consider the following example of heads or tails written
+conventionally.
 
 \begin{lstlisting}
-  firstName: String = input(``Enter your first name: '')
-  try {
-    print(``Hello, '' + firstName)
-  } catch InvalidCharacter {
-    error(``Invalid Character in first name!'')
+function choose() -> bool {
+  if (rand() > 0.5) {
+    return true
   }
-  print(``Unreachable with invalid character'')
+  return false
+}
+
+function flip() {
+  if (choose() == true) {
+    print `Heads'
+  } else {
+    print `Tails'
+  }
+}
 \end{lstlisting}
 
-Instead it is possible to define \texttt{InvalidCharacter} as an effect with a
-handler.
+The function choose returns true or false randomly, with equal probability and
+flip uses the result of chose to print heads on true and tails on false. This
+works fine but if we wanted multiple definitions of choose where we alter the
+probability or add an option for failure we would have to rewrite each function
+for each implementation.
 
-\begin{lstlisting}
-  effect InvalidCharacter: () -> String
-\end{lstlisting}
+We can use effects handlers as described by Pretnar et al \cite{pretnar2015introduction} and with the syntax outlined by Kammar et al \cite{kammar2013handlers}
 
 \section{\textsc{UNIX}}
 

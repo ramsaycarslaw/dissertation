@@ -1,0 +1,165 @@
+{-
+    BasicIO
+    =========
+-}
+
+unique ability BasicIO
+    where
+        echo: Text -> {BasicIO } Text
+
+basicIO result = 
+    match result with
+        { echo text -> resume } -> handle resume text with basicIO
+        { result } -> result
+
+
+{-
+    Status
+    =========
+-}
+
+-- The unix exit command that allows you to exit with error code
+unique ability Status
+       where
+            exit: Nat
+
+-- handles the exit command which just returns an integer
+exitHandler value request =
+    match request with
+          { result } -> result
+          { exit -> resume }
+            -> handle resume value with exitHandler value
+
+{- 
+Userspace
+==========
+
+This handles the hard coded users and their environments.
+It allows for whoami and su commands to be run.
+
+-}
+
+unique type User = Alice | Bob | Root
+structural type Environment = Environment User
+
+environments = [(Alice, Environment Alice),
+                (Bob, Environment Bob), 
+                (Root, Environment Root)]
+
+unique ability Session 
+    where 
+        su: User -> {Session } Environment
+        whoami: {Session } Text
+
+-- Helper function because unison cannot infer equity on custom types
+userEquals: User -> User -> Boolean
+userEquals user1 user2 =
+    match user1 with
+        Alice -> match user2 with
+            Alice -> true
+            _ -> false
+        Bob -> match user2 with
+            Bob -> true
+            _ -> false
+        Root -> match user2 with
+            Root -> true
+            _ -> false
+
+-- returns the environment of a user, usually from the hard coded environments 
+envOf: (User, [(User, Environment)]) -> Environment
+envOf t = match t with
+    (user, envStore) ->
+        match envStore with
+            [] -> Environment user -- TODO add failure here
+            (user', env) +: rest ->
+                if userEquals user user' then env
+                else envOf (user, rest)
+
+sessionManager initial request =
+    match request with
+          { su user -> resume }
+            -> newEnv = envOf (user, environments)
+               -- We fecth the correct environment and then resume with it
+               handle resume newEnv with sessionManager newEnv
+          { whoami -> resume} 
+            -> match initial with
+                -- this could probbaly be made generic with some User -> Text function
+                Environment Alice -> handle resume "alice" with sessionManager initial
+                Environment Bob -> handle resume "bob" with sessionManager initial
+                Environment Root -> handle resume "root" with sessionManager initial
+          { result } -> result
+
+-- shorthand
+initialEnv = envOf (Root, environments)
+
+{-
+    Time Sharing
+   ==================
+-}
+
+unique ability Interrupt
+    where
+        interrupt: {Interrupt } PState
+
+unique type PState a = Done a | Paused (() -> PState)
+
+reify m = 
+    match m with
+        { result } -> Done result
+        { interrupt -> resume } -> Paused (handle resume () with reify m)
+
+unique ability TimeSharing
+    where
+        fork: {TimeSharing } Boolean
+        yield: {TimeSharing } ()
+
+timeShare request = 
+   match request with
+       {yield -> resume } -> handle resume () with timeShare
+       { fork -> resume } 
+           -> handle (resume true lib.base.data.List.++ resume false) with timeShare 
+       { result } -> result
+
+schedule ps = 
+    match ps with
+        [] -> []
+        (Done a) +: rest -> schedule rest
+        (Paused p) +: rest -> handle p () with reify lib.base.data.List.++ schedule rest
+
+{- 
+  Tests 
+=========
+-}
+
+-- Test exiting
+testProgram0 _ =
+    exit
+-- > handle !testProgram0 with exitHandler 0
+
+testProgram1 _ = 
+    whoami
+--> handle !testProgram1 with whoamiHandler
+
+testProgram2 _ = 
+    handle whoami with sessionManager (handle su Alice with sessionManager initialEnv)
+--> handle !testProgram2 with sessionManager initialEnv
+
+proc1 = handle [echo "Hello, ", echo "World!"] with basicIO
+proc2 = handle[echo "Goodbye, ", echo "Code!"] with basicIO
+
+testProgram3 _ = 
+    handle whoami with sessionManager (handle su Bob with sessionManager initialEnv)
+
+testProgram4 _ = 
+    if fork then
+        [handle whoami with sessionManager (handle su Bob with sessionManager initialEnv)]
+     else 
+        [handle whoami with sessionManager (handle su Alice with sessionManager initialEnv)]
+--> handle !testProgram4 with timeShare 
+
+testProgram5 _ =
+    if fork then proc1 else proc2
+> handle !testProgram5 with timeShare 
+
+
+
