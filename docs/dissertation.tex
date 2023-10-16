@@ -48,15 +48,33 @@
 
 \section{Algebraic Effects and Effect Handlers}
 
-Algebraic effects and their corresponding handlers \cite{plotkin2009handlers}
-\cite{pretnar2015introduction} are a programming paradigm that when paired
-together offers a novel way to compose programs. When programs are written that
-are `black boxes', that is to say their outputs are defined entirely by their
-inputs and all functions are pure computation \cite{hughes1989functional}, it is
-safe to make assumptions about the inputs. Assumptions like an age will always
-be given as an integer or all strings will not exceed the length allocated for
-them. When programs interact with the real world it is no longer safe to make
-these assumptions. Consider the following example of heads or tails written
+Algebraic effects \cite{plotkin2002computational} and their corresponding
+handlers \cite{plotkin2009handlers} \cite{pretnar2015introduction} are a
+programming paradigm that when paired together offers a novel way to compose
+programs. It starts with the definition of the effect or the \emph{effect
+signature} that gives the effect a name in scope and specifies any input and
+the return type otherwise known as the \emph{effect operation}. At this stage
+the effect operation has no implementation and is more an acknowledgement to
+the compiler that it should expect an implementation. For this reason any
+function that references these effect operations is known as an \emph{effectful
+function} or a function whose definition is not complete without an effect
+handler. The \emph{effect handler} provides one implementation of the given
+effect operation. In this way we can change the semantics of an effectful
+function by handling it with a different handler that provides an alternative
+implementation to the effect. 
+
+When programs are written that are `black boxes', that is to say their outputs
+are defined entirely by their inputs and all functions are pure computation
+\cite{hughes1989functional}, it is safe to make assumptions about the inputs.
+Assumptions like an age will always be given as an integer or all strings will
+not exceed the length allocated for them. When programs interact with the real
+world it is no longer safe to make these assumptions. Effects allow the
+programmer to encapsulate these side effects and `handle' them with control
+flow. 
+
+\subsection{Example: Heads and Tails}
+
+Consider the following example of heads or tails written
 conventionally.
 
 \begin{lstlisting}
@@ -67,11 +85,11 @@ function choose() -> bool {
   return false
 }
 
-function flip() {
+function flip() -> string {
   if (choose() == true) {
-    print `Heads'
+    return `Heads'
   } else {
-    print `Tails'
+    return `Tails'
   }
 }
 \end{lstlisting}
@@ -82,7 +100,91 @@ works fine but if we wanted multiple definitions of choose where we alter the
 probability or add an option for failure we would have to rewrite each function
 for each implementation.
 
-We can use effects handlers as described by Pretnar et al \cite{pretnar2015introduction} and with the syntax outlined by Kammar et al \cite{kammar2013handlers}
+We can use effects handlers as described by Pretnar et al
+\cite{pretnar2015introduction} to provide a generic implementation of choose
+that can be handled by flip. The following is an example of choose implemented
+with effects.
+
+\begin{lstlisting}
+effect Choose {
+  choose : () -> bool
+}
+
+function choose() -> bool {
+  invoke choose()
+}
+
+function flip() -> string {
+  if (choose() == true) {
+    return `Heads'
+  } else {
+    return `Tails'
+  }
+}
+\end{lstlisting}
+
+The effect Choose is defined with a single operation choose that takes no
+arguments and returns a boolean. The function choose is defined as a wrapper
+that simply invokes the choose effect. The function flip is unchanged from the
+previous example. We can now define a \emph{handler} that provides the
+implementation details for choose. To get the same result as before we could do
+the following.
+
+\begin{lstlisting}
+function fairToss(value, resume) {
+  if (rand() > 0.5) {
+    resume(true)
+  }
+  resume(false)
+}
+
+handle flip() with fairToss
+\end{lstlisting}
+
+Here we split the effect into the value and the remaining computation,
+\emph{resume}. Depending on the rand function we continue the computation with
+either true or false as the value for choose. The true power of effects comes when we define multiple handlers for one effect for example we can make the coin weighted:
+
+\begin{lstlisting}
+function unfairToss(value, resume) {
+  if (rand() > 0.75) {
+    resume(true)
+  }
+  resume(false)
+}
+
+handle flip() with unfairToss
+\end{lstlisting}
+
+Or even get heads and tails at once by returning the result of both true and
+false in a list.
+
+\begin{lstlisting}
+function both(value, resume) {
+  resume(true) ++ resume(false)
+}
+
+handle flip() with both
+\end{lstlisting}
+
+We get all of these without changing either of our original definitions. This
+is the expressive power of algebraic effect handlers.
+
+%\section{Shallow vs. Deep Effect Handlers}
+%
+%There are two types of effect handler implementation, \emph{deep handlers}, as
+%originally defined by Plotkin and Pretnar \cite{plotkin2009handlers} and
+%\emph{shallow handlers}. From Hillerstr\"{o}m and Lindley
+%\cite{hillerstrom2018shallow} ``Deep handlers are defined by folds over
+%computation trees, whereas shallow handlers are defined as case splits."
+
+\section{Affine and `Multi-Shot' Handlers}
+
+\section{The State of Effect-Oriented Programming}
+
+\subsection{Library Based Effects}
+
+\subsection{First-Class Effects}
 
 \section{\textsc{UNIX}}
 
@@ -91,6 +193,18 @@ implemented by Dennis M. Ritchie and Ken Thompson at AT\&T's Bell Labs in 1974.
 It provides a file system (directories, file protection etc.), a shell,
 processes (pipe, fork etc) and a userspace. Since it's first release it has been
 reimplemented for a variety of systems.
+
+\section{Effect Handlers and UNIX}
+
+In chapter 2 of his 2022 thesis, Daniel Hillerstr\"{o}m
+\cite{hillerstrom2022foundations} outlines a theoretical implementation of UNIX
+using the effects syntax outlined by Kammar et. al. \cite{kammar2013handlers}.
+In this he provides an implementation of the original \textsc{Unix} paper
+\cite{ritchie1978unix} that includes a filesystem and timesharing.
+Hillerstr\"{o}m makes several assumptions about the effect system that would
+need to be taken into account in order to implement this with a real language.
+The main assumption is multi-shot handlers. For example the implementation of
+\texttt{fork} uses multi-shot handlers to copy the full stack on both branches. 
 
 \chapter{Methods}
 
