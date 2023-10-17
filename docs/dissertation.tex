@@ -86,7 +86,7 @@ the compiler that it should expect an implementation. For this reason any
 function that references these effect operations is known as an \emph{effectful
 function} or a function whose definition is not complete without an effect
 handler. The \emph{effect handler} provides one implementation of the given
-effect operation. In this way we can change the semantics of an effectful
+effect operation. In this way, we can change the semantics of an effectful
 function by handling it with a different handler that provides an alternative
 implementation to the effect. 
 
@@ -97,117 +97,118 @@ Assumptions like an age will always be given as an integer or all strings will
 not exceed the length allocated for them. When programs interact with the real
 world it is no longer safe to make these assumptions. Effects allow the
 programmer to encapsulate these side effects and `handle' them with control
-flow. 
+flow.
 
-\subsection{Example: Heads and Tails}
+\subsection{Example}
 
-Consider the following example of heads or tails written
-conventionally.
+For an example see section \ref{subsection:unison} on implementing a \emph{put/store} handler in Unison.
 
-\begin{lstlisting}
-function choose() -> bool {
-  if (rand() > 0.5) {
-    return true
-  }
-  return false
-}
+% \subsection{Example: Heads and Tails}
 
-function flip() -> string {
-  if (choose() == true) {
-    return `Heads'
-  } else {
-    return `Tails'
-  }
-}
-\end{lstlisting}
+% Consider the following example of heads or tails written
+% conventionally.
 
-The function choose returns true or false randomly, with equal probability and
-flip uses the result of chose to print heads on true and tails on false. This
-works fine but if we wanted multiple definitions of choose where we alter the
-probability or add an option for failure we would have to rewrite each function
-for each implementation.
+% \begin{lstlisting}
+% function choose() -> bool {
+%   if (rand() > 0.5) {
+%     return true
+%   }
+%   return false
+% }
 
-We can use effects handlers as described by Pretnar et al
-\cite{pretnar2015introduction} to provide a generic implementation of choose
-that can be handled by flip. The following is an example of choose implemented
-with effects.
+% function flip() -> string {
+%   if (choose() == true) {
+%     return `Heads'
+%   } else {
+%     return `Tails'
+%   }
+% }
+% \end{lstlisting}
 
-\begin{lstlisting}
-effect Choose {
-  choose : () -> bool
-}
+% The function choose returns true or false randomly, with equal probability and
+% flip uses the result of chose to print heads on true and tails on false. This
+% works fine but if we wanted multiple definitions of choose where we alter the
+% probability or add an option for failure we would have to rewrite each function
+% for each implementation.
 
-function choose() -> bool {
-  invoke choose()
-}
+% We can use effects handlers as described by Pretnar et al
+% \cite{pretnar2015introduction} to provide a generic implementation of choose
+% that can be handled by flip. The following is an example of choose implemented
+% with effects.
 
-function flip() -> string {
-  if (choose() == true) {
-    return `Heads'
-  } else {
-    return `Tails'
-  }
-}
-\end{lstlisting}
+% \begin{lstlisting}
+% effect Choose {
+%   choose : () -> bool
+% }
 
-The effect Choose is defined with a single operation choose that takes no
-arguments and returns a boolean. The function choose is defined as a wrapper
-that simply invokes the choose effect. The function flip is unchanged from the
-previous example. We can now define a \emph{handler} that provides the
-implementation details for choose. To get the same result as before we could do
-the following.
+% function choose() -> bool {
+%   invoke choose()
+% }
 
-\begin{lstlisting}
-function fairToss(value, resume) {
-  if (rand() > 0.5) {
-    resume(true)
-  }
-  resume(false)
-}
+% function flip() -> string {
+%   if (choose() == true) {
+%     return `Heads'
+%   } else {
+%     return `Tails'
+%   }
+% }
+% \end{lstlisting}
 
-handle flip() with fairToss
-\end{lstlisting}
+% The effect Choose is defined with a single operation choose that takes no
+% arguments and returns a boolean. The function choose is defined as a wrapper
+% that simply invokes the choose effect. The function flip is unchanged from the
+% previous example. We can now define a \emph{handler} that provides the
+% implementation details for choose. To get the same result as before we could do
+% the following.
 
-Here we split the effect into the value and the remaining computation,
-\emph{resume}. Depending on the rand function we continue the computation with
-either true or false as the value for choose. The true power of effects comes when we define multiple handlers for one effect for example we can make the coin weighted:
+% \begin{lstlisting}
+% function fairToss(value, resume) {
+%   if (rand() > 0.5) {
+%     resume(true)
+%   }
+%   resume(false)
+% }
 
-\begin{lstlisting}
-function unfairToss(value, resume) {
-  if (rand() > 0.75) {
-    resume(true)
-  }
-  resume(false)
-}
+% handle flip() with fairToss
+% \end{lstlisting}
 
-handle flip() with unfairToss
-\end{lstlisting}
+% Here we split the effect into the value and the remaining computation,
+% \emph{resume}. Depending on the rand function we continue the computation with
+% either true or false as the value for choose. The true power of effects comes when we define multiple handlers for one effect for example we can make the coin weighted:
 
-Or even get heads and tails at once by returning the result of both true and
-false in a list.
+% \begin{lstlisting}
+% function unfairToss(value, resume) {
+%   if (rand() > 0.75) {
+%     resume(true)
+%   }
+%   resume(false)
+% }
 
-\begin{lstlisting}
-function both(value, resume) {
-  resume(true) ++ resume(false)
-}
+% handle flip() with unfairToss
+% \end{lstlisting}
 
-handle flip() with both
-\end{lstlisting}
+% Or even get heads and tails at once by returning the result of both true and
+% false in a list.
 
-We get all of these without changing either of our original definitions. This
-is the expressive power of algebraic effect handlers.
+% \begin{lstlisting}
+% function both(value, resume) {
+%   resume(true) ++ resume(false)
+% }
+
+% handle flip() with both
+% \end{lstlisting}
+
+% We get all of these without changing either of our original definitions. This
+% is the expressive power of algebraic effect handlers.
 
 \section{Shallow vs. Deep Effect Handlers}
 
 There are two types of effect handler implementation, \emph{deep handlers}, as
 originally defined by Plotkin and Pretnar \cite{plotkin2009handlers} and
-\emph{shallow handlers}. From Hillerstr\"{o}m and Lindley
-\cite{hillerstrom2018shallow} ``Deep handlers are defined by folds over
-computation trees, whereas shallow handlers are defined as case splits." In
-practice deep handlers pass themselves with the computation allowing for them to
-be invoked again. Certain methods such as introducing a Continuation Passing
-Style allow for shallow handlers to implement behaviour normally reserved for
-deep handlers.
+\emph{shallow handlers} \cite{hillerstrom2018shallow}. In practice deep handlers
+pass themselves with the computation allowing for them to be invoked again.
+Certain methods such as introducing a Continuation Passing Style allow for
+shallow handlers to implement behaviour normally reserved for deep handlers.
 
 \section{Affine and `Multi-Shot' Handlers}
 
@@ -230,12 +231,24 @@ C/C++ library that adds effect handlers. It uses virtual memory to solve the
 problem mentioned with libhandler. By keeping the stack in a fixed location in
 virtual memory it restores safety. It also provides the higher level libmpeff
 interface. A downside is they recommend at least 2GiB of virtual memory to
-allows for 16000 stacks which may be challenging on some systems.}
+allow for 16000 stacks which may be challenging on some systems.}
         \item{cpp-effects \cite{DBLP:journals/pacmpl/GhicaLBP22} is a C++
 implementation of effect handlers. It uses C++ template classes and types to
 create modular effects and handlers. It's performance has been shown to be
 comparable to C++20 coroutines. It's limitations are it only supports one-shot
-resumptions.}
+        resumptions.}
+        \item{There are several Haskell libraries that implement effect handlers
+\cite{DBLP:conf/haskell/XieL20, DBLP:conf/haskell/KiselyovI15,
+DBLP:conf/haskell/WuSH14}. Some are discussed in more detail below.}
+        \begin{itemize}
+          \item{EvEff uses lambda calculus based evidence translation to
+implement it's effects system. It provides deep effects.}
+          \item{fused-effects
+\footnote{https://hackage.haskell.org/package/fused-effects} fuses the effect
+handlers it provides with computation by applying \emph{fusion laws} that avoid
+intermediate representation. The handlers in fused-effects are one-shot
+however.}
+        \end{itemize}
 \end{itemize}
 
 \subsection{First-Class Effects}
@@ -243,14 +256,14 @@ resumptions.}
 \begin{itemize}
         \item{Unison \footnote{https://github.com/unisonweb/unison} is a
 function language implemented in Haskell that offers built in support for effect
-handlers through it's abilities system.}
+handlers through it's abilities system. Unison is shown in more detail in section \ref{subsection:unison}}
         \item{Koka \cite{DBLP:journals/corr/Leijen14} is a statically typed
 functional language with effect types and handlers. It can also compile
 straight to C code without needing a garbage collector. Koka is developed by a
-small team and as such is still missing much of it's standard library.}
+small team and as such is still missing much of its standard library.}
         \item{Frank \cite{DBLP:conf/popl/LindleyMM17} is a strict functional
 language that is \emph{effectful} in that it has first class support for
-bi-directional effects and effct handlers. }
+bi-directional effects and effect handlers. }
         \item{Links \cite{DBLP:conf/fmco/CooperLWY06} is a functional
 programming language designed for the web. Out of the box it does not support
 true algebraic effects, however through an extension
@@ -258,6 +271,64 @@ true algebraic effects, however through an extension
 continuations.}
 \end{itemize}
 
+\subsection{Unison}
+\label{subsection:unison}
+
+Unison provides the \emph{ability} keyword which allows users to define their own
+effects. It also provides the \emph{handle ... with ...} pattern to attach handlers to effectful functions.
+
+\begin{lstlisting}[caption={The \emph{put} and \emph{store} example in Unison. Note that the \emph{structural} keyword refers to the fact that Unison stores type definitions as a hash. Even if we changed all the variable names it would still view it as the same type. To avoid that behaviour you can swap the \emph{structural} keyword for \emph{unique}}]
+structural ability Store a where
+  put: a -> {Store a} ()
+  get: {Store a} a
+\end{lstlisting}
+
+This defines the two effect operations \texttt{put} and \texttt{get} that have
+the effect signature \texttt{Store a}. Put takes a value of type \texttt{a} and
+returns the unit type \texttt{()}. The prefix of \texttt{\{Store a\}} to the
+\texttt{()}, refers to the fact that in order to allow for \texttt{put} to
+return, it must be run from an effectful function that is handled with an
+appropriate handler for \texttt{Store a}. Similarly, \texttt{put} takes an
+argument of type \texttt{a} and must be handled.
+
+\begin{lstlisting}[caption={An example of an effectful function that uses the \texttt{Store} effect}]
+addStore : a -> {Store a} ()
+addStore x =
+  y = get
+  put (x + y)
+\end{lstlisting}
+\label{listing:addstore}
+
+The code in listing \ref{listing:addstore} is an example of how you would use
+the effects in Unison. It takes an argument of type \texttt{a} and `adds' it to
+the current value by using \texttt{get}. Note that in order for this to work the
+infix operation `+' must be implemented for type \texttt{a}. Now we only need to
+define the handler.
+
+\begin{lstlisting}[caption={The handler for the \texttt{Store} effect}]
+    storeHandler : a -> Request (Store a) a -> a
+    storeHandler value = cases
+        {Store.get -> resume} -> handle resume value with storeHandler value
+        {Store.put v -> resume} handle resume () with storeHandler v
+        {result} -> result
+
+\end{lstlisting}
+
+The handlers in Unison use tail recursion to reduce to the case where just the
+value is left \texttt{result -> result}. For both store and put we use the
+resumption and the handler to reach the final value. The special type
+\texttt{Request} allows us to perform pattern matching on the possible types of
+the computation.
+
+\begin{lstlisting}
+handle !(addStore 10) with storeHandler 10
+\end{lstlisting}
+
+Finally, we can put it all together by calling the function \texttt{addStore}
+with the handler \texttt{storeHandler}. The \texttt{addStore 10} is a delayed
+function due to it using effects. This means it will not run until we tell it to
+avoid errors with the handlers. Given we are handling it we force it to run with
+`!'.
 
 \section{\textsc{UNIX}}
 
@@ -266,6 +337,15 @@ implemented by Dennis M. Ritchie and Ken Thompson at AT\&T's Bell Labs in 1974.
 It provides a file system (directories, file protection etc.), a shell,
 processes (pipe, fork etc) and a userspace. Since it's first release it has been
 reimplemented for a variety of systems.
+
+\subsection{The UNIX Philosophy}
+
+A phrase often associated with \textsc{Unix} is the \emph{Unix philosophy}.  The
+\textsc{Unix} philosophy refers to some of the core principles with which it was
+developed. The core principles involve composing many small simple programs that
+accomplish one task well to solve more complex tasks \cite{raymond2003art}. The
+idea of many small modular components has spread to many areas of computer
+science including effect oriented programming.
 
 \section{Effect Handlers and UNIX}
 
