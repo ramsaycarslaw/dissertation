@@ -30,7 +30,7 @@
 
 @Article{hughes1989functional,
   author    = {Hughes, John},
-  journal   = {The computer journal},
+  journal   = {The Computer Journal},
   title     = {Why functional programming matters},
   year      = {1989},
   number    = {2},
@@ -88,6 +88,102 @@
   pages     = {e5},
   volume    = {30},
   publisher = {Cambridge University Press},
+}
+
+@TechReport{leijen2017implementing,
+  author   = {Leijen, Daan},
+  title    = {Implementing Algebraic Effects in C},
+  year     = {2017},
+  month    = {June},
+  number   = {MSR-TR-2017-23},
+  abstract = {We describe a full implementation of algebraic effects and handlers as a
+library in standard and portable C99, where effect operations can be used
+just like regular C functions. We use a formal operational semantics to
+guide the C implementation at every step where an evaluation context
+corresponds directly to a particular C execution context. Finally we show
+a novel extension to the formal semantics to describe optimized tail
+resumptions and prove that the extension is sound. This gives two orders
+of magnitude improvement to the performance of tail resumptive operations
+(up to about 150 million operations per second on a Core i7@2.6GHz)},
+  url      = {https://www.microsoft.com/en-us/research/publication/implementing-algebraic-effects-c/},
+}
+
+@Article{DBLP:journals/pacmpl/GhicaLBP22,
+  author    = {Dan R. Ghica and Sam Lindley and Marcos Maro{\~{n}}as Bravo and Maciej Pir{\'{o}}g},
+  journal   = {Proc. {ACM} Program. Lang.},
+  title     = {High-level effect handlers in {C++}},
+  year      = {2022},
+  number    = {{OOPSLA2}},
+  pages     = {1639--1667},
+  volume    = {6},
+  bibsource = {dblp computer science bibliography, https://dblp.org},
+  biburl    = {https://dblp.org/rec/journals/pacmpl/GhicaLBP22.bib},
+  doi       = {10.1145/3563445},
+  timestamp = {Thu, 05 Jan 2023 17:10:29 +0100},
+  url       = {https://doi.org/10.1145/3563445},
+}
+
+@InProceedings{DBLP:journals/corr/Leijen14,
+  author    = {Daan Leijen},
+  booktitle = {Proceedings 5th Workshop on Mathematically Structured Functional Programming, MSFP@ETAPS 2014, Grenoble, France, 12 April 2014},
+  title     = {Koka: Programming with Row Polymorphic Effect Types},
+  year      = {2014},
+  editor    = {Paul Blain Levy and Neel Krishnaswami},
+  pages     = {100--126},
+  series    = {{EPTCS}},
+  volume    = {153},
+  bibsource = {dblp computer science bibliography, https://dblp.org},
+  biburl    = {https://dblp.org/rec/journals/corr/Leijen14.bib},
+  doi       = {10.4204/EPTCS.153.8},
+  timestamp = {Wed, 29 Sep 2021 08:56:00 +0200},
+  url       = {https://doi.org/10.4204/EPTCS.153.8},
+}
+
+@InProceedings{DBLP:conf/popl/LindleyMM17,
+  author    = {Sam Lindley and Conor McBride and Craig McLaughlin},
+  booktitle = {Proceedings of the 44th {ACM} {SIGPLAN} Symposium on Principles of Programming Languages, {POPL} 2017, Paris, France, January 18-20, 2017},
+  title     = {Do be do be do},
+  year      = {2017},
+  editor    = {Giuseppe Castagna and Andrew D. Gordon},
+  pages     = {500--514},
+  publisher = {{ACM}},
+  bibsource = {dblp computer science bibliography, https://dblp.org},
+  biburl    = {https://dblp.org/rec/conf/popl/LindleyMM17.bib},
+  doi       = {10.1145/3009837.3009897},
+  timestamp = {Sat, 30 Sep 2023 09:54:52 +0200},
+  url       = {https://doi.org/10.1145/3009837.3009897},
+}
+
+@InProceedings{DBLP:conf/fmco/CooperLWY06,
+  author    = {Ezra Cooper and Sam Lindley and Philip Wadler and Jeremy Yallop},
+  booktitle = {Formal Methods for Components and Objects, 5th International Symposium, {FMCO} 2006, Amsterdam, The Netherlands, November 7-10, 2006, Revised Lectures},
+  title     = {Links: Web Programming Without Tiers},
+  year      = {2006},
+  editor    = {Frank S. de Boer and Marcello M. Bonsangue and Susanne Graf and Willem P. de Roever},
+  pages     = {266--296},
+  publisher = {Springer},
+  series    = {Lecture Notes in Computer Science},
+  volume    = {4709},
+  bibsource = {dblp computer science bibliography, https://dblp.org},
+  biburl    = {https://dblp.org/rec/conf/fmco/CooperLWY06.bib},
+  doi       = {10.1007/978-3-540-74792-5\_12},
+  timestamp = {Tue, 14 May 2019 10:00:53 +0200},
+  url       = {https://doi.org/10.1007/978-3-540-74792-5\_12},
+}
+
+@InProceedings{DBLP:conf/icfp/HillerstromL16,
+  author    = {Daniel Hillerstr{\"{o}}m and Sam Lindley},
+  booktitle = {Proceedings of the 1st International Workshop on Type-Driven Development, TyDe@ICFP 2016, Nara, Japan, September 18, 2016},
+  title     = {Liberating effects with rows and handlers},
+  year      = {2016},
+  editor    = {James Chapman and Wouter Swierstra},
+  pages     = {15--27},
+  publisher = {{ACM}},
+  bibsource = {dblp computer science bibliography, https://dblp.org},
+  biburl    = {https://dblp.org/rec/conf/icfp/HillerstromL16.bib},
+  doi       = {10.1145/2976022.2976033},
+  timestamp = {Sat, 30 Sep 2023 09:45:14 +0200},
+  url       = {https://doi.org/10.1145/2976022.2976033},
 }
 
 @Comment{jabref-meta: databaseType:bibtex;}

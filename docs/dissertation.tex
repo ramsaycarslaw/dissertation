@@ -1,4 +1,6 @@
-\documentclass{report}
+\documentclass[logo,bsc,singlespacing,parskip]{infthesis}
+
+\usepackage{ugcheck}
 
 \usepackage{microtype}
 \usepackage{hyperref}
@@ -32,15 +34,40 @@
 
 \lstset{style=mystyle}
 
+
+\begin{document}
+\begin{preliminary}
+
 \title{Implementing UNIX with Effects Handlers}
 \author{Ramsay Carslaw}
 
-\begin{document}
+\course{Computer Science}
+\project{4th Year Project Report}
+
+\date{\today}
 
 
 \maketitle
 
+\newenvironment{ethics}
+   {\begin{frontenv}{Research Ethics Approval}{\LARGE}}
+   {\end{frontenv}\newpage}
+
+\begin{ethics}
+This project was planned in accordance with the Informatics Research
+Ethics policy. It did not involve any aspects that required approval
+from the Informatics Research Ethics committee.
+
+\standarddeclaration
+\end{ethics}
+
+\begin{acknowledgements}
+  Any acknowledgements go here.
+\end{acknowledgements}
+
 \tableofcontents
+
+\end{preliminary}
 
 \chapter{Introduction}
 
@@ -170,21 +197,67 @@ handle flip() with both
 We get all of these without changing either of our original definitions. This
 is the expressive power of algebraic effect handlers.
 
-%\section{Shallow vs. Deep Effect Handlers}
-%
-%There are two types of effect handler implementation, \emph{deep handlers}, as
-%originally defined by Plotkin and Pretnar \cite{plotkin2009handlers} and
-%\emph{shallow handlers}. From Hillerstr\"{o}m and Lindley
-%\cite{hillerstrom2018shallow} ``Deep handlers are defined by folds over
-%computation trees, whereas shallow handlers are defined as case splits."
+\section{Shallow vs. Deep Effect Handlers}
+
+There are two types of effect handler implementation, \emph{deep handlers}, as
+originally defined by Plotkin and Pretnar \cite{plotkin2009handlers} and
+\emph{shallow handlers}. From Hillerstr\"{o}m and Lindley
+\cite{hillerstrom2018shallow} ``Deep handlers are defined by folds over
+computation trees, whereas shallow handlers are defined as case splits." In
+practice deep handlers pass themselves with the computation allowing for them to
+be invoked again. Certain methods such as introducing a Continuation Passing
+Style allow for shallow handlers to implement behaviour normally reserved for
+deep handlers.
 
 \section{Affine and `Multi-Shot' Handlers}
+
+If a continuation can be invoked only once we call it an \emph{affine} or
+\emph{one-shot} handler.  If it can be invoked multiple times then it is
+\emph{multi-shot}.
 
 \section{The State of Effect-Oriented Programming}
 
 \subsection{Library Based Effects}
 
+\begin{itemize}
+        \item{libhandler \cite{leijen2017implementing} is a portable c99 library
+that implements algebraic effect handlers for C. It implements high performance
+multi-shot effects using standard C functions. It is limited by the assumptions
+it makes about the stack such as it being contiguous and not moving. In practice
+this could lead to memory leaks if it copies pointers.}
+        \item{libmprompt \footnote{https://github.com/koka-lang/libmprompt} is a
+C/C++ library that adds effect handlers. It uses virtual memory to solve the
+problem mentioned with libhandler. By keeping the stack in a fixed location in
+virtual memory it restores safety. It also provides the higher level libmpeff
+interface. A downside is they recommend at least 2GiB of virtual memory to
+allows for 16000 stacks which may be challenging on some systems.}
+        \item{cpp-effects \cite{DBLP:journals/pacmpl/GhicaLBP22} is a C++
+implementation of effect handlers. It uses C++ template classes and types to
+create modular effects and handlers. It's performance has been shown to be
+comparable to C++20 coroutines. It's limitations are it only supports one-shot
+resumptions.}
+\end{itemize}
+
 \subsection{First-Class Effects}
+
+\begin{itemize}
+        \item{Unison \footnote{https://github.com/unisonweb/unison} is a
+function language implemented in Haskell that offers built in support for effect
+handlers through it's abilities system.}
+        \item{Koka \cite{DBLP:journals/corr/Leijen14} is a statically typed
+functional language with effect types and handlers. It can also compile
+straight to C code without needing a garbage collector. Koka is developed by a
+small team and as such is still missing much of it's standard library.}
+        \item{Frank \cite{DBLP:conf/popl/LindleyMM17} is a strict functional
+language that is \emph{effectful} in that it has first class support for
+bi-directional effects and effct handlers. }
+        \item{Links \cite{DBLP:conf/fmco/CooperLWY06} is a functional
+programming language designed for the web. Out of the box it does not support
+true algebraic effects, however through an extension
+\cite{DBLP:conf/icfp/HillerstromL16} it gains first class support for
+continuations.}
+\end{itemize}
+
 
 \section{\textsc{UNIX}}
 
@@ -204,7 +277,10 @@ In this he provides an implementation of the original \textsc{Unix} paper
 Hillerstr\"{o}m makes several assumptions about the effect system that would
 need to be taken into account in order to implement this with a real language.
 The main assumption is multi-shot handlers. For example the implementation of
-\texttt{fork} uses multi-shot handlers to copy the full stack on both branches. 
+\texttt{fork} uses multi-shot handlers to copy the full stack on both branches.
+There are also some partial implementations such as \texttt{sed} \footnote{It is
+worth mentioning \texttt{sed} has $20,000+$ lines of code} from which he only
+implements string replacement.
 
 \chapter{Methods}
 
