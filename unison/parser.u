@@ -1,0 +1,17 @@
+splitString : Text -> Char -> [Text]
+splitString str delim = 
+    Text.split delim str
+
+commandLine : '{IO, Exception} ()
+commandLine _ = 
+    use commandLine
+    printLine "$ "
+    input = !readLine 
+        
+    !commandLine
+    ()
+
+-- entry point 
+main : '{IO, Exception} () 
+main = 
+    commandLine

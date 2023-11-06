@@ -39,9 +39,11 @@ It allows for whoami and su commands to be run.
 
 -}
 
+-- The users (hard coded)
 unique type User = Alice | Bob | Root
 structural type Environment = Environment User
 
+-- Each user has a unique environment
 environments = [(Alice, Environment Alice),
                 (Bob, Environment Bob), 
                 (Root, Environment Root)]
@@ -93,7 +95,7 @@ sessionManager initial request =
 initialEnv = envOf (Root, environments)
 
 {-
-    Time Sharing
+      Time Sharing
    ==================
 -}
 
@@ -101,7 +103,7 @@ unique ability Interrupt
     where
         interrupt: {Interrupt } PState
 
-unique type PState a = Done a | Paused (() -> PState)
+unique type PState a b = Done a | Paused b
 
 reify m = 
     match m with
@@ -115,20 +117,20 @@ unique ability TimeSharing
 
 timeShare request = 
    match request with
-       {yield -> resume } -> handle resume () with timeShare
+       { yield -> resume } -> handle resume () with timeShare
        { fork -> resume } 
            -> handle (resume true lib.base.data.List.++ resume false) with timeShare 
        { result } -> result
 
-schedule ps = 
+schedule ps =
     match ps with
         [] -> []
         (Done a) +: rest -> schedule rest
         (Paused p) +: rest -> handle p () with reify lib.base.data.List.++ schedule rest
 
 {- 
-  Tests 
-=========
+    Tests 
+============
 -}
 
 -- Test exiting
@@ -145,7 +147,7 @@ testProgram2 _ =
 --> handle !testProgram2 with sessionManager initialEnv
 
 proc1 = handle [echo "Hello, ", echo "World!"] with basicIO
-proc2 = handle[echo "Goodbye, ", echo "Code!"] with basicIO
+proc2 = handle [echo "Goodbye, ", echo "Code!"] with basicIO
 
 testProgram3 _ = 
     handle whoami with sessionManager (handle su Bob with sessionManager initialEnv)
