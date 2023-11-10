@@ -95,18 +95,18 @@ implementation of the given effect operation. We could define a simple handler
 for state that simply updates a variable of the given type or we could define a
 more complex one that uses hash maps.  In this way, we can change the semantics
 of an effectful function by handling it with a different handler that provides
-an alternative implementation to the effect. Cruicially, we can have multiple
+an alternative implementation to the effect. Crucially, we can have multiple
 handlers defined in the same program for one effect allowing for much more
 modular programming or \emph{effect-oreinted programming}.
 
-When programs are written that are `black boxes', that is to say their outputs
-are defined entirely by their inputs and all functions are pure computation
-\cite{hughes1989functional}, it is safe to make assumptions about the inputs.
-Assumptions like an age will always be given as an integer or all strings will
-not exceed the length allocated for them. When programs interact with the real
-world it is no longer safe to make these assumptions. Effects allow the
-programmer to encapsulate these side effects and `handle' them with control
-flow.
+When are programs rely on input from the real world like connecting to a server
+on the internet or getting input from a user, it is no longer safe to assume
+this input will be passed as we expect. For example, the server could time out
+or not be at the address the program is expecting it to be at or the user could
+enter a string that is too long for the input. These real world uncertainties
+are known as \emph{Side Effects}. Effect handlers can be used to provide
+alternate implementations of functions that may have side effects and allow for
+control flow with these effects.
 
 \subsection{Example in Unison}
 \label{subsection:unison}
@@ -171,20 +171,13 @@ function due to it using effects. This means it will not run until we tell it to
 avoid errors with the handlers. Given we are handling it we force it to run with
 `!'.
 
-\section{Shallow vs. Deep Effect Handlers}
-
-There are two types of effect handler implementation, \emph{deep handlers}, as
-originally defined by Plotkin and Pretnar \cite{plotkin2009handlers} and
-\emph{shallow handlers} \cite{hillerstrom2018shallow}. In practice deep handlers
-pass themselves with the computation allowing for them to be invoked again.
-Certain methods such as introducing a Continuation Passing Style allow for
-shallow handlers to implement behaviour normally reserved for deep handlers.
 
 \section{Affine and `Multi-Shot' Handlers}
 
-If a continuation can be invoked only once we call it an \emph{affine} or
-\emph{one-shot} handler.  If it can be invoked multiple times then it is
-\emph{multi-shot}.
+If remaining computation or continuation of an effect can be resumed once from
+a handler then the effect system implements \emph{one-shot} or \emph{affine}
+effect handlers. If it is able to resume the computation multiple times then it
+is a \emph{multi-shot} handler. 
 
 \section{The State of Effect-Oriented Programming}
 
@@ -239,6 +232,18 @@ true algebraic effects, however through an extension
 continuations.}
 \end{itemize}
 
+\section{Shallow vs. Deep Effect Handlers}
+
+There are two types of effect handler implementation, \emph{deep handlers}, as
+originally defined by Plotkin and Pretnar \cite{plotkin2009handlers} and
+\emph{shallow handlers} \cite{hillerstrom2018shallow}. Deep handlers pass a
+copy of the full handler along with the computation which allows for the
+handler to be invoked again as the handlers receive themselves as an argument.
+Shallow handlers do not pass the handler with the computation. There are also
+\emph{sheep handlers}, which while being shallow implement some of the
+behaviour of deep handlers leading to the name sheep or shallow + deep. In
+practice, the type of handler is more of an implementation detail although it
+can have an effect on how code is structured.
 
 \section{\textsc{UNIX}}
 
