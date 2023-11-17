@@ -229,11 +229,11 @@ fwrite i text fs =
                             FileSystem directories (modifyINode i (INode i dataRegion) ilists) (modifyDataRegion dataRegion text dataRegions) 0 0
                 Right () -> fs
 
-fileRW : Request {FileRW} a -> a
-fileRW result =
-    match result with
-        { read i -> resume } -> fread i initialFileSystem
-        { write (i, text) -> resume } -> fwrite i text initialFileSystem
+--fileRW : Request {FileRW} a -> a
+--fileRW result =
+--    match result with
+--        { read i -> resume } -> fread i initialFileSystem
+--        { write (i, text) -> resume } -> fwrite i text initialFileSystem
 
 
 {- 
