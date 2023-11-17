@@ -1,3 +1,30 @@
+add
+update
+add
+laod unix.u
+add
+quit
+run testProgram0
+testProgram0
+quit
+q
+update
+run initialEnv 
+run sessionManager 
+run timeShare
+timeShare
+clear
+clear
+run runTest5
+run runTest5
+run runTest5
+run proc1
+proc1
+add
+add
+ls
+project.rename unix
+project.create
 exit
 clear
 desserts : [Text]

@@ -1,0 +1,42 @@
+quit
+add ./unison/
+add
+clear
+run.file unix.u
+exit
+project.delete unix
+ui
+clear
+ls
+add unison/unix.u
+clear
+add
+load unison/unix.u
+load unix.u
+clear
+projects
+load unison/unix.u
+load unison/unix.u
+load unison/unix.u
+load unison/unix.u
+load unison/unix.u
+load unison/unix.u
+load unison/unix.u
+load unison/unix.u
+load unison/unix.u
+clear
+load unison/unix.u
+load unison/unix.u
+load unison/unix.u
+load unison/unix.u
+load unison/unix.u
+load unison/unix.u
+load unison/unix.u
+load unison/unix.u
+load unison/unix.u
+load unison/unix.u
+load unison/unix.u
+load unison/unix.u
+load unison/unix.u
+add 
+project.create unix

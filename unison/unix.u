@@ -5,12 +5,12 @@
 
 unique ability BasicIO
     where
-        echo: Text -> {BasicIO } Text
+        echo: Text -> {BasicIO } ()
 
 basicIO result = 
     match result with
-        { echo text -> resume } -> handle resume text with basicIO
-        { result } -> result
+        { echo text -> resume } -> putText stdOut text; handle resume () with basicIO
+        { result } -> ()
 
 
 {-
@@ -21,14 +21,14 @@ basicIO result =
 -- The unix exit command that allows you to exit with error code
 unique ability Status
        where
-            exit: Nat
+            exit: Nat -> ()
 
 -- handles the exit command which just returns an integer
-exitHandler value request =
+exitHandler : Request {g, Status} x -> Nat
+exitHandler request =
     match request with
-          { result } -> result
-          { exit -> resume }
-            -> handle resume value with exitHandler value
+          { result } -> 0
+          { exit v -> resume } -> v
 
 {- 
 Userspace
@@ -44,6 +44,7 @@ unique type User = Alice | Bob | Root
 structural type Environment = Environment User
 
 -- Each user has a unique environment
+environments : List (User, Environment)
 environments = [(Alice, Environment Alice),
                 (Bob, Environment Bob), 
                 (Root, Environment Root)]
@@ -77,6 +78,7 @@ envOf t = match t with
                 if userEquals user user' then env
                 else envOf (user, rest)
 
+sessionManager : Environment -> Request {Session} a -> a
 sessionManager initial request =
     match request with
           { su user -> resume }
@@ -92,6 +94,7 @@ sessionManager initial request =
           { result } -> result
 
 -- shorthand
+initialEnv : Environment
 initialEnv = envOf (Root, environments)
 
 {-
@@ -99,34 +102,139 @@ initialEnv = envOf (Root, environments)
    ==================
 -}
 
-unique ability Interrupt
-    where
-        interrupt: {Interrupt } PState
+--unique ability Interrupt
+--    where
+--        interrupt: {Interrupt } ()
+--
+--reify request =
+--    match request with
+--        { interrupt -> resume } -> Paused resume
+--        { result } -> Done result
+--
+--unique type PState a b = Done a | Paused b
 
-unique type PState a b = Done a | Paused b
-
-reify m = 
-    match m with
-        { result } -> Done result
-        { interrupt -> resume } -> Paused (handle resume () with reify m)
+--reify m = 
+--    match m with
+--        { result } -> Done result
+--        { interrupt -> resume } -> Paused (handle resume () with reify m)
 
 unique ability TimeSharing
     where
         fork: {TimeSharing } Boolean
         yield: {TimeSharing } ()
 
+-- handler for time sharing ability
+timeShare : Request {TimeSharing} a -> [a]
 timeShare request = 
-   match request with
-       { yield -> resume } -> handle resume () with timeShare
-       { fork -> resume } 
-           -> handle (resume true lib.base.data.List.++ resume false) with timeShare 
-       { result } -> result
+    match request with
+        { yield -> resume } -> handle resume () with timeShare
+        { fork -> resume } 
+            -> (handle resume true with timeShare) lib.base.data.List.++ (handle resume false with timeShare) 
+        { result } -> [result]
 
-schedule ps =
-    match ps with
+--schedule ps =
+--    match ps with
+--        [] -> []
+--        (Done a) +: rest -> schedule rest
+--        (Paused p) +: rest -> handle p () with reify lib.base.data.List.++ schedule rest
+
+{-
+  Serial File System 
+  ==================
+-}
+
+unique type DirectoryT = Directory (Text, Nat)
+unique type DataRegionT = DataRegion (Nat, Text)
+unique type INodeT = INode Nat Nat 
+unique type IListT = IList (Nat, INodeT)
+unique type FileSystemT = FileSystem (List DirectoryT) (List IListT) (List DataRegionT) Nat Nat
+
+
+initialINode : INodeT
+initialINode = INode 0 0
+
+initialDirectory : DirectoryT
+initialDirectory = (Directory ("stdout", 0))
+
+initialDataRegion : DataRegionT
+initialDataRegion = DataRegion (0, "")
+
+initialIList : IListT
+initialIList = IList (0, initialINode)
+
+initialFileSystem : FileSystemT
+initialFileSystem = FileSystem [initialDirectory] [initialIList] [initialDataRegion] 0 0
+
+unique ability FileRW
+    where
+        -- Read INode number -> File
+        read: Nat -> {FileRW } Text
+        -- Write INode number, Text -> ()
+        write: (Nat, Text) -> {FileRW } ()
+
+
+lookupINode : Nat -> [IListT] -> Either INodeT ()
+lookupINode i ilists =
+    match ilists with
+        [] -> Right ()
+        (IList (i', inode)) +: rest ->
+            if i == i' then Left inode
+            else lookupINode i rest
+
+modifyINode : Nat -> INodeT -> [IListT] -> [IListT]
+modifyINode i inode ilists =
+    match ilists with
         [] -> []
-        (Done a) +: rest -> schedule rest
-        (Paused p) +: rest -> handle p () with reify lib.base.data.List.++ schedule rest
+        (IList (i', inode')) +: rest ->
+            if i == i' then (IList (i, inode)) +: rest
+            else (IList (i', inode')) +: modifyINode i inode rest
+
+lookupDataRegion : Nat -> [DataRegionT] -> Either Text ()
+lookupDataRegion i dataRegions =
+    match dataRegions with
+        [] -> Right ()
+        (DataRegion (i', text)) +: rest ->
+            if i == i' then Left text
+            else lookupDataRegion i rest
+
+modifyDataRegion : Nat -> Text -> [DataRegionT] -> [DataRegionT]
+modifyDataRegion i text dataRegions =
+    match dataRegions with
+        [] -> []
+        (DataRegion (i', text')) +: rest ->
+            if i == i' then (DataRegion (i, (text' ++ text))) +: rest
+            else (DataRegion (i', text')) +: modifyDataRegion i text rest
+
+fread : Nat -> FileSystemT -> Either Text ()
+fread i fs =
+    match fs with
+        FileSystem directories ilists dataRegions _ _ ->
+            match lookupINode i ilists with
+                Left inode ->
+                    match inode with
+                        INode _ dataRegion ->
+                            match lookupDataRegion dataRegion dataRegions with
+                                Left text -> Left text
+                                Right () -> Right ()
+                Right () -> Right ()
+
+fwrite : Nat -> Text -> FileSystemT -> FileSystemT
+fwrite i text fs =
+    match fs with
+        FileSystem directories ilists dataRegions _ _ ->
+            match lookupINode i ilists with
+                Left inode ->
+                    match inode with
+                        INode _ dataRegion ->
+                            FileSystem directories (modifyINode i (INode i dataRegion) ilists) (modifyDataRegion dataRegion text dataRegions) 0 0
+                Right () -> fs
+
+fileRW : Request {FileRW} a -> a
+fileRW result =
+    match result with
+        { read i -> resume } -> fread i initialFileSystem
+        { write (i, text) -> resume } -> fwrite i text initialFileSystem
+
 
 {- 
     Tests 
@@ -134,9 +242,8 @@ schedule ps =
 -}
 
 -- Test exiting
-testProgram0 _ =
-    exit
--- > handle !testProgram0 with exitHandler 0
+testProgram0 _ = exit 42
+> handle !testProgram0 with exitHandler
 
 testProgram1 _ = 
     whoami
@@ -146,8 +253,8 @@ testProgram2 _ =
     handle whoami with sessionManager (handle su Alice with sessionManager initialEnv)
 --> handle !testProgram2 with sessionManager initialEnv
 
-proc1 = handle [echo "Hello, ", echo "World!"] with basicIO
-proc2 = handle [echo "Goodbye, ", echo "Code!"] with basicIO
+proc1 _ = handle [echo "Hello, ", echo "World!"] with basicIO
+proc2 _ = handle [echo "Goodbye, ", echo "Code!"] with basicIO
 
 testProgram3 _ = 
     handle whoami with sessionManager (handle su Bob with sessionManager initialEnv)
@@ -159,9 +266,6 @@ testProgram4 _ =
         [handle whoami with sessionManager (handle su Alice with sessionManager initialEnv)]
 --> handle !testProgram4 with timeShare 
 
-testProgram5 _ =
-    if fork then proc1 else proc2
-> handle !testProgram5 with timeShare 
-
-
-
+--testProgram5 _ =
+--    if fork then proc1 else proc2
+-- runTest5 _ = handle !testProgram5 with timeShare
