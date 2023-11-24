@@ -7,6 +7,7 @@ unique ability BasicIO
     where
         echo: Text -> {BasicIO } ()
 
+basicIO : Request {BasicIO} x ->{IO, Exception} ()
 basicIO result = 
     match result with
         { echo text -> resume } -> putText stdOut text; handle resume () with basicIO
@@ -102,41 +103,40 @@ initialEnv = envOf (Root, environments)
    ==================
 -}
 
---unique ability Interrupt
---    where
---        interrupt: {Interrupt } ()
---
---reify request =
---    match request with
---        { interrupt -> resume } -> Paused resume
---        { result } -> Done result
---
---unique type PState a b = Done a | Paused b
+unique ability Interrupt
+    where
+        interrupt: {Interrupt } ()
 
---reify m = 
---    match m with
---        { result } -> Done result
---        { interrupt -> resume } -> Paused (handle resume () with reify m)
+
+unique type PState a = Done a | Paused (Unit ->{Interrupt} a)
+
+reifyProcess : Request {Interrupt} a -> PState a
+reifyProcess request =
+    match request with
+        { interrupt -> resume } -> Paused resume
+        { result } -> Done result
 
 unique ability TimeSharing
     where
         fork: {TimeSharing } Boolean
-        yield: {TimeSharing } ()
 
 -- handler for time sharing ability
-timeShare : Request {TimeSharing} a -> [a]
-timeShare request = 
+nondet : Request {TimeSharing} a -> [a]
+nondet request = 
     match request with
-        { yield -> resume } -> handle resume () with timeShare
-        { fork -> resume } 
-            -> (handle resume true with timeShare) lib.base.data.List.++ (handle resume false with timeShare) 
+        { fork -> resume } -> (handle resume true with nondet) lib.base.data.List.++ (handle resume false with nondet) 
         { result } -> [result]
 
---schedule ps =
---    match ps with
---        [] -> []
---        (Done a) +: rest -> schedule rest
---        (Paused p) +: rest -> handle p () with reify lib.base.data.List.++ schedule rest
+scheduler : [PState a] -> [a]
+scheduler processes =
+    match processes with
+        [] -> []
+        Done result +: rest -> result +: scheduler rest
+        Paused resume +: rest -> scheduler (rest) +: handle resume () with nondet
+
+timeShare : [Request {Interrupt} a] -> [a]
+timeShare requests = scheduler (map reifyProcess requests)
+
 
 {-
   Serial File System 
@@ -229,11 +229,12 @@ fwrite i text fs =
                             FileSystem directories (modifyINode i (INode i dataRegion) ilists) (modifyDataRegion dataRegion text dataRegions) 0 0
                 Right () -> fs
 
---fileRW : Request {FileRW} a -> a
+--fileRW : Request {FileRW} a -> FileSystemT 
 --fileRW result =
 --    match result with
---        { read i -> resume } -> fread i initialFileSystem
---        { write (i, text) -> resume } -> fwrite i text initialFileSystem
+--        { read i -> resume } -> fread i (handle resume text with fileRW)
+--        { write (i, text) -> resume } -> fwrite i text (handle resume () with fileRW)
+--        { result } -> initialFileSystem
 
 
 {- 
@@ -264,8 +265,8 @@ testProgram4 _ =
         [handle whoami with sessionManager (handle su Bob with sessionManager initialEnv)]
      else 
         [handle whoami with sessionManager (handle su Alice with sessionManager initialEnv)]
---> handle !testProgram4 with timeShare 
+--> handle !testProgram4 with nondet 
 
 --testProgram5 _ =
 --    if fork then proc1 else proc2
--- runTest5 _ = handle !testProgram5 with timeShare
+-- runTest5 _ = handle !testProgram5 with nondete
