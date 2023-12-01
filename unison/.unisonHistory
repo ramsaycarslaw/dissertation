@@ -1,3 +1,21 @@
+run testProgram6
+run testProgram5
+run testProgram5
+run testProgram5
+run testProgram5
+run testProgram5
+run testProgram
+run testProgram5
+run testProgram5
+run testProgram5
+run testProgram5
+view reifyProcess
+quit
+clear
+ucm
+clear
+ll
+exit
 exit
 add
 update

@@ -8,7 +8,7 @@ unique ability BasicIO
         echo: Text -> {BasicIO } ()
 
 basicIO : Request {BasicIO} x ->{IO, Exception} ()
-basicIO result = 
+basicIO result =
     match result with
         { echo text -> resume } -> putText stdOut text; handle resume () with basicIO
         { result } -> ()
@@ -31,7 +31,7 @@ exitHandler request =
           { result } -> 0
           { exit v -> resume } -> v
 
-{- 
+{-
 Userspace
 ==========
 
@@ -47,11 +47,11 @@ structural type Environment = Environment User
 -- Each user has a unique environment
 environments : List (User, Environment)
 environments = [(Alice, Environment Alice),
-                (Bob, Environment Bob), 
+                (Bob, Environment Bob),
                 (Root, Environment Root)]
 
-unique ability Session 
-    where 
+unique ability Session
+    where
         su: User -> {Session } Environment
         whoami: {Session } Text
 
@@ -69,7 +69,7 @@ userEquals user1 user2 =
             Root -> true
             _ -> false
 
--- returns the environment of a user, usually from the hard coded environments 
+-- returns the environment of a user, usually from the hard coded environments
 envOf: (User, [(User, Environment)]) -> Environment
 envOf t = match t with
     (user, envStore) ->
@@ -86,7 +86,7 @@ sessionManager initial request =
             -> newEnv = envOf (user, environments)
                -- We fecth the correct environment and then resume with it
                handle resume newEnv with sessionManager newEnv
-          { whoami -> resume} 
+          { whoami -> resume}
             -> match initial with
                 -- this could probbaly be made generic with some User -> Text function
                 Environment Alice -> handle resume "alice" with sessionManager initial
@@ -108,13 +108,21 @@ unique ability Interrupt
         interrupt: {Interrupt } ()
 
 
-unique type PState a = Done a | Paused (Unit ->{Interrupt} a)
+-- unique type PState a = Done a | Paused (Unit ->{Interrupt} a)
+unique type PState a e = Done a | Paused ('{e} PState a e)
 
-reifyProcess : Request {Interrupt} a -> PState a
+
+--reifyProcess : Request {Interrupt} a -> PState a e
+--reifyProcess request =
+--    match request with
+--        { interrupt -> resume } -> ( handle resume with reifyProcess )
+--        { result } -> Done result
+
+reifyProcess : Request {g, Interrupt} (PState a {g, Interrupt}) -> PState a {g, Interrupt}
 reifyProcess request =
     match request with
         { interrupt -> resume } -> Paused resume
-        { result } -> Done result
+        { result } -> result
 
 unique ability TimeSharing
     where
@@ -122,30 +130,54 @@ unique ability TimeSharing
 
 -- handler for time sharing ability
 nondet : Request {TimeSharing} a -> [a]
-nondet request = 
+nondet request =
     match request with
-        { fork -> resume } -> (handle resume true with nondet) lib.base.data.List.++ (handle resume false with nondet) 
+        { fork -> resume } -> (handle resume true with nondet) lib.base.data.List.++ (handle resume false with nondet)
         { result } -> [result]
 
-scheduler : [PState a] -> [a]
+scheduler : [PState a {TimeSharing, Interrupt}] -> [a]
 scheduler processes =
     match processes with
         [] -> []
         Done result +: rest -> result +: scheduler rest
-        Paused resume +: rest -> scheduler (rest) +: handle resume () with nondet
+        Paused resume +: rest -> scheduler (rest ++ handle (handle resume () with reifyProcess) with nondet)
 
-timeShare : [Request {Interrupt} a] -> [a]
-timeShare requests = scheduler (map reifyProcess requests)
+timeshare procs = scheduler (map reifyProcess procs)
+
+interruptIO : Request {BasicIO} x ->{IO, Exception, Interrupt} ()
+interruptIO result =
+    match result with
+        { echo text -> resume } -> interrupt; putText stdOut text; handle resume () with basicIO
+        { result } -> ()
+
+
+--scheduler : [PState a] -> [a]
+--scheduler processes =
+--    match processes with
+--        [] -> []
+--        Done result +: rest -> result +: scheduler rest
+--        Paused resume +: rest -> scheduler (rest) ++ handle resume () with nondet
 
 
 {-
-  Serial File System 
+  Serial File System
   ==================
 -}
 
+unique ability State a
+       where
+            put: a -> ()
+            get: () -> a
+
+runState pair =
+         match pair with
+               (state, request) ->
+                       match request with
+                             { res } -> (state, res)
+
 unique type DirectoryT = Directory (Text, Nat)
 unique type DataRegionT = DataRegion (Nat, Text)
-unique type INodeT = INode Nat Nat 
+unique type INodeT = INode Nat Nat
 unique type IListT = IList (Nat, INodeT)
 unique type FileSystemT = FileSystem (List DirectoryT) (List IListT) (List DataRegionT) Nat Nat
 
@@ -205,6 +237,7 @@ modifyDataRegion i text dataRegions =
             if i == i' then (DataRegion (i, (text' ++ text))) +: rest
             else (DataRegion (i', text')) +: modifyDataRegion i text rest
 
+-- fread, implementation of system read
 fread : Nat -> FileSystemT -> Either Text ()
 fread i fs =
     match fs with
@@ -218,6 +251,7 @@ fread i fs =
                                 Right () -> Right ()
                 Right () -> Right ()
 
+-- fwrite, writes to the file system at the given inode with the given text
 fwrite : Nat -> Text -> FileSystemT -> FileSystemT
 fwrite i text fs =
     match fs with
@@ -229,44 +263,49 @@ fwrite i text fs =
                             FileSystem directories (modifyINode i (INode i dataRegion) ilists) (modifyDataRegion dataRegion text dataRegions) 0 0
                 Right () -> fs
 
---fileRW : Request {FileRW} a -> FileSystemT 
+--fileRW : Request {FileRW} a -> FileSystemT
 --fileRW result =
 --    match result with
 --        { read i -> resume } -> fread i (handle resume text with fileRW)
 --        { write (i, text) -> resume } -> fwrite i text (handle resume () with fileRW)
---        { result } -> initialFileSystem
+--        { result } -> result
 
 
-{- 
-    Tests 
+{-
+    Tests
 ============
 -}
 
 -- Test exiting
 testProgram0 _ = exit 42
-> handle !testProgram0 with exitHandler
+--> handle !testProgram0 with exitHandler
 
-testProgram1 _ = 
+testProgram1 _ =
     whoami
 --> handle !testProgram1 with whoamiHandler
 
-testProgram2 _ = 
+testProgram2 _ =
     handle whoami with sessionManager (handle su Alice with sessionManager initialEnv)
 --> handle !testProgram2 with sessionManager initialEnv
 
 proc1 _ = handle [echo "Hello, ", echo "World!"] with basicIO
 proc2 _ = handle [echo "Goodbye, ", echo "Code!"] with basicIO
 
-testProgram3 _ = 
+testProgram3 _ =
     handle whoami with sessionManager (handle su Bob with sessionManager initialEnv)
 
-testProgram4 _ = 
+testProgram4 _ =
     if fork then
         [handle whoami with sessionManager (handle su Bob with sessionManager initialEnv)]
-     else 
+     else
         [handle whoami with sessionManager (handle su Alice with sessionManager initialEnv)]
---> handle !testProgram4 with nondet 
+--> handle !testProgram4 with nondet
 
---testProgram5 _ =
---    if fork then proc1 else proc2
--- runTest5 _ = handle !testProgram5 with nondete
+ritchie _ = echo "UNIX is basically\n"; echo "a simple operating system\n"; echo "but you have to be a genius to understand the simplicity\n"
+hamlet _ = echo "To be, or not to be,\n"; echo "that is the question:\n"; echo "Wether 'tis nobler in the mind to suffer\n";
+
+testProgram5 _ =
+    handle (handle (if fork then [!ritchie] else [!hamlet]) with basicIO) with nondet
+
+testProgram6 _ =
+    handle (handle (handle (if fork then [ritchie] else [hamlet]) with interruptIO) with reifyProcess) with nondet
