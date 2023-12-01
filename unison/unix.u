@@ -142,8 +142,6 @@ scheduler processes =
         Done result +: rest -> result +: scheduler rest
         Paused resume +: rest -> scheduler (rest ++ handle (handle resume () with reifyProcess) with nondet)
 
-timeshare procs = scheduler (map reifyProcess procs)
-
 interruptIO : Request {BasicIO} x ->{IO, Exception, Interrupt} ()
 interruptIO result =
     match result with
@@ -308,4 +306,4 @@ testProgram5 _ =
     handle (handle (if fork then [!ritchie] else [!hamlet]) with basicIO) with nondet
 
 testProgram6 _ =
-    handle (handle (handle (if fork then [ritchie] else [hamlet]) with interruptIO) with reifyProcess) with nondet
+    handle (if fork then [ritchie] else [hamlet]) with basicIO
