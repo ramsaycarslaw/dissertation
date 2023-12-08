@@ -109,12 +109,14 @@ unique ability Interrupt
 
 
 -- unique type PState a = Done a | Paused (Unit ->{Interrupt} a)
-unique type PState a e = Done a | Paused ({e} PState a e)
+unique type PState a e = Done a | Paused ('{e} PState a e)
 
-interruptIO : Request {BasicIO} x ->{IO, Exception, Interrupt} ()
-interruptIO result =
+interruptWrite result =
     match result with
-        { echo text -> resume } -> interrupt; putText stdOut text; handle resume () with basicIO
+        { echo text -> resume } -> 
+            interrupt
+            echo text 
+            handle resume () with interruptWrite
         { result } -> ()
 
 --reifyProcess : Request {Interrupt} a -> PState a e
@@ -126,7 +128,7 @@ interruptIO result =
 
 reifyProcess request =
     match request with
-        { interrupt -> resume } -> Paused (handle !resume with reifyProcess )
+        { interrupt -> resume } -> Paused (_ -> handle !resume with reifyProcess )
         { result } -> Done result
 
 unique ability TimeSharing
@@ -140,15 +142,19 @@ nondet request =
         { fork -> resume } -> (handle resume true with nondet) lib.base.data.List.++ (handle resume false with nondet)
         { result } -> [result]
 
-schedule : [PState a {TimeSharing}] -> [a]
-schedule processes =
-    match processes with
-        [] -> []
-        Done result +: rest -> result +: schedule rest
-        Paused resume +: rest -> schedule (rest lib.base.data.List.++ (handle resume with nondet))
+sched : [PState a {e, TimeSharing}] -> [a] ->{e} [a]
+sched ps done = 
+    match ps with
+        [] -> done
+        (Done res) +: ps' -> sched ps' (res lib.base.data.List.+: done)
+        (Paused m) +: ps' -> sched (ps' lib.base.data.List.++ (handle !m with nondet)) done
 
-timeshare : '{e, Interrupt} a ->{e} [a]
-timeshare m = schedule [Paused (handle !m with reifyProcess)]
+schedule : [PState a {e, TimeSharing}] ->{e} [a]
+schedule processes =
+    sched processes []
+
+timeshare : '{g, Interrupt, TimeSharing} o ->{g} [o]
+timeshare m = schedule [Paused (_ -> handle !m with reifyProcess)]
 
 {-
   Serial File System
@@ -383,4 +389,4 @@ testProgram4 _ =
 testProgram5 _ =
     handle (handle (if fork then [!ritchie] else [!hamlet]) with basicIO) with nondet
 
-testProgram6 _ = schedule [(Paused (handle (handle !ritchie with interruptIO) with reifyProcess)), (Paused (handle (handle !hamlet with interruptIO) with reifyProcess))]
+testProgram6 _ = timeshare (_ -> (handle (handle (if fork then [!ritchie] else [!hamlet]) with interruptWrite) with basicIO))
