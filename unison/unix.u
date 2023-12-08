@@ -109,8 +109,13 @@ unique ability Interrupt
 
 
 -- unique type PState a = Done a | Paused (Unit ->{Interrupt} a)
-unique type PState a e = Done a | Paused ('{e} PState a e)
+unique type PState a e = Done a | Paused ({e} PState a e)
 
+interruptIO : Request {BasicIO} x ->{IO, Exception, Interrupt} ()
+interruptIO result =
+    match result with
+        { echo text -> resume } -> interrupt; putText stdOut text; handle resume () with basicIO
+        { result } -> ()
 
 --reifyProcess : Request {Interrupt} a -> PState a e
 --reifyProcess request =
@@ -118,11 +123,11 @@ unique type PState a e = Done a | Paused ('{e} PState a e)
 --        { interrupt -> resume } -> ( handle resume with reifyProcess )
 --        { result } -> Done result
 
-reifyProcess : Request {g, Interrupt} (PState a {g, Interrupt}) -> PState a {g, Interrupt}
+
 reifyProcess request =
     match request with
-        { interrupt -> resume } -> Paused resume
-        { result } -> result
+        { interrupt -> resume } -> Paused (handle !resume with reifyProcess )
+        { result } -> Done result
 
 unique ability TimeSharing
     where
@@ -135,27 +140,15 @@ nondet request =
         { fork -> resume } -> (handle resume true with nondet) lib.base.data.List.++ (handle resume false with nondet)
         { result } -> [result]
 
-scheduler : [PState a {TimeSharing, Interrupt}] -> [a]
-scheduler processes =
+schedule : [PState a {TimeSharing}] -> [a]
+schedule processes =
     match processes with
         [] -> []
-        Done result +: rest -> result +: scheduler rest
-        Paused resume +: rest -> scheduler (rest ++ handle (handle resume () with reifyProcess) with nondet)
+        Done result +: rest -> result +: schedule rest
+        Paused resume +: rest -> schedule (rest lib.base.data.List.++ (handle resume with nondet))
 
-interruptIO : Request {BasicIO} x ->{IO, Exception, Interrupt} ()
-interruptIO result =
-    match result with
-        { echo text -> resume } -> interrupt; putText stdOut text; handle resume () with basicIO
-        { result } -> ()
-
-
---scheduler : [PState a] -> [a]
---scheduler processes =
---    match processes with
---        [] -> []
---        Done result +: rest -> result +: scheduler rest
---        Paused resume +: rest -> scheduler (rest) ++ handle resume () with nondet
-
+timeshare : '{e, Interrupt} a ->{e} [a]
+timeshare m = schedule [Paused (handle !m with reifyProcess)]
 
 {-
   Serial File System
@@ -167,11 +160,21 @@ unique ability State a
             put: a -> ()
             get: () -> a
 
-runState pair =
-         match pair with
-               (state, request) ->
-                       match request with
-                             { res } -> (state, res)
+--runState : (b, Request {State b} a) -> (b, a)
+--runState pair =
+--    match pair with 
+--        (s, request) ->
+--        match request with
+--            { result } -> (s, result)
+--            { put s' -> resume } -> (s', resume ())
+--            { get () -> resume } -> (s, resume s)
+
+runState : a -> Request {State a} b -> b
+runState v request =
+    match request with
+        { put v' -> resume } -> handle resume () with runState v'
+        { get () -> resume } -> handle resume v with runState v
+        { result } -> result
 
 unique type DirectoryT = Directory (Text, Nat)
 unique type DataRegionT = DataRegion (Nat, Text)
@@ -210,6 +213,14 @@ lookupINode i ilists =
         (IList (i', inode)) +: rest ->
             if i == i' then Left inode
             else lookupINode i rest
+
+lookupFName : Text -> [DirectoryT] -> Either Nat ()
+lookupFName name directories =
+    match directories with
+        [] -> Right ()
+        (Directory (name', i)) +: rest ->
+            if name == name' then Left i
+            else lookupFName name rest
 
 modifyINode : Nat -> INodeT -> [IListT] -> [IListT]
 modifyINode i inode ilists =
@@ -261,17 +272,84 @@ fwrite i text fs =
                             FileSystem directories (modifyINode i (INode i dataRegion) ilists) (modifyDataRegion dataRegion text dataRegions) 0 0
                 Right () -> fs
 
---fileRW : Request {FileRW} a -> FileSystemT
+fopen : Text -> FileSystemT -> Nat
+fopen name fs = 
+    match fs with
+        FileSystem directories ilists dataRegions dnext inext ->
+            match lookupFName name directories with
+                Left i -> i
+                Right () -> inext
+
+has : Text -> [DirectoryT] -> Boolean
+has name directories =
+    match directories with
+        [] -> false
+        (Directory (name', i)) +: rest ->
+            if name == name' then true
+            else has name rest
+
+fcreate : Text -> FileSystemT -> (Nat, FileSystemT)
+fcreate name fs = 
+    match fs with 
+        FileSystem directories ilists dataRegions dnext inext ->
+            -- file already exists, overwrite it
+            if has name directories then 
+                let ino = (fopen name fs)
+                    inode = lookupINode ino ilists
+                    match inode with
+                        Left inode -> 
+                            match inode with 
+                                INode ino loc ->
+                                    let dreg' = modifyDataRegion loc "" dataRegions
+                                        (ino , FileSystem directories ilists dreg' dnext inext)
+                        Right () -> (ino, fs) -- unreacable
+            else 
+                let inext' = inext + 1
+                    dnext' = dnext + 1
+                    inode = INode inext dnext
+                    ilists' = (IList (inext, inode)) +: ilists
+                    directories' = (Directory (name, inext)) +: directories
+                    (inext, FileSystem directories' ilists' dataRegions dnext' inext')
+
+--fileRW : Request {FileRW} a -> State FileSystemT
 --fileRW result =
 --    match result with
---        { read i -> resume } -> fread i (handle resume text with fileRW)
---        { write (i, text) -> resume } -> fwrite i text (handle resume () with fileRW)
+--        -- { read i -> resume } -> let cs = (fread i get()) in resume cs
+--        { write (i, text) -> resume } -> put (fwrite i text get()); handle resume () with fileRW
 --        { result } -> result
 
 
 {-
+    Examples
+    =========
+-}
+
+ioAndUsers : a ->{Session, Status, BasicIO} ()
+ioAndUsers _ = 
+    if whoami == "root" then
+        echo "Logged in as root\n";
+        exit 0
+    else
+        echo "Permission denied\n";
+        exit 1
+    
+runIOandUsers _ = handle (handle (handle !ioAndUsers with sessionManager initialEnv) with exitHandler) with basicIO
+    
+ritchie _ = echo "UNIX is basically\n"; echo "a simple operating system\n"; echo "but you have to be a genius to understand the simplicity\n"
+hamlet _ = echo "To be, or not to be,\n"; echo "that is the question:\n"; echo "Wether 'tis nobler in the mind to suffer\n";
+
+forkAndIO : a ->{BasicIO, TimeSharing} ()
+forkAndIO _ = 
+    if fork then
+        !ritchie
+    else
+        !hamlet
+
+runForkAndIO _ = handle (handle !forkAndIO with basicIO) with nondet
+        
+{-
     Tests
-============
+    ======
 -}
 
 -- Test exiting
@@ -299,11 +377,10 @@ testProgram4 _ =
         [handle whoami with sessionManager (handle su Alice with sessionManager initialEnv)]
 --> handle !testProgram4 with nondet
 
-ritchie _ = echo "UNIX is basically\n"; echo "a simple operating system\n"; echo "but you have to be a genius to understand the simplicity\n"
-hamlet _ = echo "To be, or not to be,\n"; echo "that is the question:\n"; echo "Wether 'tis nobler in the mind to suffer\n";
+--ritchie _ = echo "UNIX is basically\n"; echo "a simple operating system\n"; echo "but you have to be a genius to understand the simplicity\n"
+--hamlet _ = echo "To be, or not to be,\n"; echo "that is the question:\n"; echo "Wether 'tis nobler in the mind to suffer\n";
 
 testProgram5 _ =
     handle (handle (if fork then [!ritchie] else [!hamlet]) with basicIO) with nondet
 
-testProgram6 _ =
-    handle (if fork then [ritchie] else [hamlet]) with basicIO
+testProgram6 _ = schedule [(Paused (handle (handle !ritchie with interruptIO) with reifyProcess)), (Paused (handle (handle !hamlet with interruptIO) with reifyProcess))]
