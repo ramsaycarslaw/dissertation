@@ -204,14 +204,6 @@ initialIList = IList (0, initialINode)
 initialFileSystem : FileSystemT
 initialFileSystem = FileSystem [initialDirectory] [initialIList] [initialDataRegion] 0 0
 
-unique ability FileRW
-    where
-        -- Read INode number -> File
-        read: Nat -> {FileRW } Text
-        -- Write INode number, Text -> ()
-        write: (Nat, Text) -> {FileRW } ()
-
-
 lookupINode : Nat -> [IListT] -> Either INodeT ()
 lookupINode i ilists =
     match ilists with
@@ -278,6 +270,38 @@ fwrite i text fs =
                             FileSystem directories (modifyINode i (INode i dataRegion) ilists) (modifyDataRegion dataRegion text dataRegions) 0 0
                 Right () -> fs
 
+unique ability FileRW
+         where
+                read: Nat -> {FileRW } Text
+                write: (Nat, Text) -> {FileRW } ()
+
+fileRW : Request {FileRW} a ->{State FileSystemT} a
+fileRW result =
+    match result with
+        { read i -> resume } ->
+            let fs = get ()
+                text = fread i fs
+                match text with
+                    Left text -> handle resume text with fileRW
+                    Right () -> handle resume "" with fileRW   -- make this fail
+        { write (i, text) -> resume } ->
+            let fs = get ()
+                fs' = fwrite i text fs
+                put fs'
+                handle resume () with fileRW
+        { result } -> result
+
+echoWrite : Text ->{FileRW} ()
+echoWrite text = write (0, text)
+
+systemIO : Request {BasicIO} a ->{FileRW, State FileSystemT} a
+systemIO result =
+    match result with
+        { echo text -> resume } ->
+            handle write (0, text) with fileRW
+            handle resume () with systemIO
+        { result } -> result
+
 fopen : Text -> FileSystemT -> Nat
 fopen name fs = 
     match fs with
@@ -317,13 +341,147 @@ fcreate name fs =
                     directories' = (Directory (name, inext)) +: directories
                     (inext, FileSystem directories' ilists' dataRegions dnext' inext')
 
---fileRW : Request {FileRW} a -> State FileSystemT
---fileRW result =
---    match result with
---        -- { read i -> resume } -> let cs = (fread i get()) in resume cs
---        { write (i, text) -> resume } -> put (fwrite i text get()); handle resume () with fileRW
---        { result } -> result
+unique ability FileCO
+    where
+        open: Text -> {FileCO } Nat
+        close: Nat -> {FileCO } ()
 
+fileCO : Request {FileCO} a ->{FileRW, State FileSystemT} a
+fileCO result =
+    match result with
+        { open name -> resume } ->
+            let fs = get ()
+                (ino, fs') = fcreate name fs
+                put fs'
+                handle resume ino with fileCO
+        { close i -> resume } ->
+            let fs = get ()
+                put fs
+                handle resume () with fileCO
+        { result } -> result
+
+flink: Text -> Text -> FileSystemT -> FileSystemT
+flink src dest fs =
+    match fs with
+        FileSystem directories ilists dataRegions dnext inext ->
+            if has dest directories then
+               fs -- error, file exists
+            else
+                let ino = lookupFName src directories
+                    match ino with
+                        Left ino ->
+                            let directories' = (Directory (dest, ino)) +: directories
+                                inode = lookupINode ino ilists
+                                match inode with
+                                    Left inode ->
+                                        match inode with
+                                            INode ino loc ->
+                                                  let loc' = loc + 1
+                                                      inode' = INode ino loc'
+                                                      ilists' = modifyINode ino inode' ilists
+                                                      FileSystem directories' ilists' dataRegions dnext inext
+                                    Right () -> fs -- unreachable, we know the file exists
+                        Right () -> fs -- no such file src
+
+removeINode : Nat -> [IListT] -> [IListT]
+removeINode i ilists =
+    match ilists with
+        [] -> []
+        (IList (i', inode)) +: rest ->
+            if i == i' then rest
+            else (IList (i', inode)) +: removeINode i rest
+
+removeDataRegion : Nat -> [DataRegionT] -> [DataRegionT]
+removeDataRegion i dataRegions =
+    match dataRegions with
+        [] -> []
+        (DataRegion (i', text)) +: rest ->
+            if i == i' then rest
+            else (DataRegion (i', text)) +: removeDataRegion i rest
+
+removeDirectory : Text -> [DirectoryT] -> [DirectoryT]
+removeDirectory name directories =
+    match directories with
+        [] -> []
+        (Directory (name', i)) +: rest ->
+            if name == name' then rest
+            else (Directory (name', i)) +: removeDirectory name rest
+
+funlink: Text -> FileSystemT -> FileSystemT
+funlink name fs =
+    match fs with
+        FileSystem directories ilists dataRegions dnext inext ->
+            if has name directories then
+                let ino = lookupFName name directories
+                    match ino with
+                        Left ino ->
+                             let directories' = removeDirectory name directories
+                                 inode = lookupINode ino ilists
+                                 match inode with
+                                        Left inode ->
+                                            match inode with
+                                                INode ino loc ->
+                                                    if loc > 1 then
+                                                        let loc' = loc - 1
+                                                            inode' = INode ino loc'
+                                                            ilists' = modifyINode ino inode' ilists
+                                                            FileSystem directories' ilists' dataRegions dnext inext
+                                                    else
+                                                        let ilists' = removeINode ino ilists
+                                                            dataRegions' = removeDataRegion loc dataRegions
+                                                            FileSystem directories' ilists' dataRegions' dnext inext
+                                        Right () -> fs -- unreachable, we know the file exists
+                        Right () -> fs -- no such file src
+            else
+                fs -- no such file
+
+
+unique ability FileLU
+       where
+            link: (Text, Text) -> {FileLU } ()
+            unlink: Text -> {FileLU } ()
+
+fileLU : Request {FileLU} a ->{FileRW, State FileSystemT} a
+fileLU result =
+    match result with
+        { link (src, dest) -> resume } ->
+            let fs = get ()
+                fs' = flink src dest fs
+                put fs'
+                handle resume () with fileLU
+        { unlink name -> resume } ->
+            let fs = get ()
+                fs' = funlink name fs
+                put fs'
+                handle resume () with fileLU
+        { result } -> result
+
+fileIO m = handle (handle (handle !m with fileRW) with fileCO) with fileLU
+
+
+{-
+    pipes
+    ======
+-}
+
+unique ability Await 
+    where
+        await: () -> {Await } a
+
+unique ability Yeild
+    where
+        yeild: a -> {Yeild } ()
+
+--pipe : Request {Yeild} a -> Request {Await} a -> ()
+--pipe process coprocess = 
+--    match coprocess with
+--        { await () -> resume } -> handle !resume with copipe process
+--
+--copipe : Request {Yeild} a -> Request {Await} a -> ()
+--copipe process coprocess = 
+--    match process with
+--        { yeild a -> resume } -> handle !resume with pipe a
+--        { result } -> result
 
 {-
     Examples
@@ -390,3 +548,5 @@ testProgram5 _ =
     handle (handle (if fork then [!ritchie] else [!hamlet]) with basicIO) with nondet
 
 testProgram6 _ = timeshare (_ -> (handle (handle (if fork then [!ritchie] else [!hamlet]) with interruptWrite) with basicIO))
+
+testProgram7 _ = handle (get (handle (handle (echo "Hello, World!\n") with systemIO) with fileRW)) with runState initialFileSystem
