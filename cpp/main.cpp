@@ -59,7 +59,7 @@ class EffectfulExit : public eff::handler<T, Exit>
     T handle_command(Exit n, eff::resumption<T> r) override
     {
       exit(n.status);
-      return std::move(r).tail_resume(n.status);
+      return std::move(r.tail_resume(n.status));
     }
 
     T handle_return(T v) override 

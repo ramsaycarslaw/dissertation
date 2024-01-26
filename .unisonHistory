@@ -1,4 +1,7 @@
 quit
+exit
+add
+quit
 add ./unison/
 add
 clear

@@ -2,6 +2,8 @@
 *.swp
 *.swo
 
+*.unisonHistory
+
 ## Core latex/pdflatex auxiliary files:
 *.aux
 *.lof

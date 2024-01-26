@@ -149,12 +149,12 @@ sched ps done =
         (Done res) +: ps' -> sched ps' (res lib.base.data.List.+: done)
         (Paused m) +: ps' -> sched (ps' lib.base.data.List.++ (handle !m with nondet)) done
 
-schedule : [PState a {e, TimeSharing}] ->{e} [a]
-schedule processes =
-    sched processes []
+--schedule : [PState a {e, TimeSharing}] ->{e} [a]
+--schedule processes =
+--    sched processes []
 
 timeshare : '{g, Interrupt, TimeSharing} o ->{g} [o]
-timeshare m = schedule [Paused (_ -> handle !m with reifyProcess)]
+timeshare m = sched [Paused (_ -> handle !m with reifyProcess)] []
 
 {-
   Serial File System
@@ -464,24 +464,113 @@ fileIO m = handle (handle (handle !m with fileRW) with fileCO) with fileLU
     ======
 -}
 
-unique ability Await 
+unique ability Await a
     where
         await: () -> {Await } a
 
-unique ability Yeild
+unique ability Yeild a
     where
         yeild: a -> {Yeild } ()
 
---pipe : Request {Yeild} a -> Request {Await} a -> ()
---pipe process coprocess = 
---    match coprocess with
---        { await () -> resume } -> handle !resume with copipe process
+--pipe : '{Yeild b, e} a -> '{Await b, e} a ->{e} a
+--pipe p c = handle c () with
+--                (cases
+--                    { x } -> x
+--                    { await () -> resume } -> copipe resume c p)
 --
---copipe : Request {Yeild} a -> Request {Await} a -> ()
---copipe process coprocess = 
---    match process with
---        { yeild a -> resume } -> handle !resume with pipe a
+--copipe : b -> {Await b, e} a -> '{Yeild b, e} a ->{e} a
+--copipe p c = handle p () with
+--                (cases
+--                    { x } -> x
+--                    { yeild y -> resume } -> pipe ('resume) c y )
+
+{-
+    Process Syncronization
+    ======================
+-}
+
+unique ability Co 
+    where 
+        ufork: () -> {Co } Nat
+        wait: Nat -> {Co } ()
+        uinterrupt: () -> {Co } ()
+
+unique type ProcessState a = Ready a | Blocked Nat a
+
+ready: [(Nat, a)] -> [(Nat, ProcessState a)]
+ready processes =
+    match processes with
+        [] -> []
+        (pid, process) +: rest -> (pid, Ready process) +: ready rest
+
+blocked: [(Nat, a)] -> [(Nat, ProcessState a)]
+blocked processes =
+    match processes with
+        [] -> []
+        (pid, process) +: rest -> (pid, Blocked pid process) +: blocked rest
+
+processExists: Nat -> [(Nat, ProcessState a)] -> Boolean
+processExists pid processes =
+    match processes with
+        [] -> false
+        (pid', process) +: rest ->
+            if pid == pid' then true
+            else processExists pid rest
+
+runNext : List (Nat, ProcessState a) -> List (Nat, a) -> Nat -> Nat ->{e} List (Nat, a)
+runNext queue done pid pnext = 
+    match queue with
+        []          -> done
+        fst +: rest -> match fst with
+            (pid', Ready resume)         -> handle resume with scheduler rest done pid' pnext
+            (pid', Blocked pid'' resume) -> runNext (rest lib.base.data.List.:+ (pid, Blocked pid' resume)) done pid pnext 
+
+scheduler : List (Nat, ProcessState a) -> List (Nat, a) -> Nat -> Nat -> Request {Co} a -> List (Nat, a)
+scheduler queue done pid pnext proc =
+    match proc with
+        { ufork () -> resume } -> 
+            let resume' = handle resume 0 with scheduler queue done pid pnext
+                pid' = pnext 
+                pnext' = pnext + 1
+                queue' = queue lib.base.data.List.++ ready resume'
+                handle resume pid with scheduler queue' done pid' pnext'
+        { wait pid' -> resume } -> 
+            let resume' = handle resume () with scheduler queue done pid pnext
+                queue' = if processExists pid' queue then
+                             queue lib.base.data.List.++ blocked resume'
+                         else queue ++ ready resume'
+                runNext queue' done pid pnext
+        { uinterrupt () -> resume } -> 
+            let resume' = handle resume () with scheduler queue done pid pnext
+                queue' = queue ++ ready resume'
+                runNext queue' done pid pnext
+        { result } -> runNext queue (done lib.base.data.List.++ [(pid, result)]) pid pnext
+
+timeshare2 : '{Co} a ->{Co} [(Nat, a)] 
+timeshare2 m = handle m () with scheduler [] [] 1 2
+ 
+init : '{e} () ->{e, Co} ()
+init main = let pid = ufork ()
+                if pid == 0 then 
+                    main ()
+                else 
+                    wait pid
+ 
+ {-
+    Util 
+    ======
+-}
+
+--unique ability Logging
+--    where
+--        log: a -> {Logging } ()
+--
+--logHandler : Request {Logging} a -> a
+--logHandler request =
+--    match request with
+--        { log x -> resume } -> putText stdOut x; handle resume () with logHandler
 --        { result } -> result
+
 
 {-
     Examples
@@ -550,3 +639,5 @@ testProgram5 _ =
 testProgram6 _ = timeshare (_ -> (handle (handle (if fork then [!ritchie] else [!hamlet]) with interruptWrite) with basicIO))
 
 testProgram7 _ = handle (get (handle (handle (echo "Hello, World!\n") with systemIO) with fileRW)) with runState initialFileSystem
+
+-- testProgram8 _ = timeshare2 (_ -> (handle (handle (if ufork () == 0 then [!ritchie] else [!hamlet]) with interruptWrite) with basicIO))
