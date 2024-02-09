@@ -7,6 +7,7 @@
 \usepackage{listings}
 \usepackage{algpseudocode}
 \usepackage{xcolor}
+\usepackage{tcolorbox}
 
 \definecolor{codegreen}{rgb}{0,0.6,0}
 \definecolor{codegray}{rgb}{0.5,0.5,0.5}
@@ -24,12 +25,21 @@
     breaklines=true,
     captionpos=b,
     keepspaces=true,
-    numbers=left,
-    numbersep=5pt,
+    numbers=none,
     showspaces=false,
     showstringspaces=false,
     showtabs=false,
     tabsize=2
+}
+
+\lstdefinestyle{terminal}{
+  basicstyle=\ttfamily\footnotesize,
+  frame=single,
+  breaklines=true,
+  breakatwhitespace=true,
+  captionpos=b,
+  xleftmargin=10pt,
+  numbers=none,
 }
 
 \lstset{style=mystyle}
@@ -46,6 +56,8 @@
 
 \date{\today}
 
+% https://okmij.org/ftp/continuations/ZFS/context-OS.pdf
+% https://dl.acm.org/doi/pdf/10.1145/800087.802786
 
 \maketitle
 
@@ -162,15 +174,11 @@ resumption and the handler to reach the final value. The special type
 the computation.
 
 \begin{lstlisting}
-handle !(addStore 10) with storeHandler 10
+handle (addStore 10) with storeHandler 10
 \end{lstlisting}
 
 Finally, we can put it all together by calling the function \texttt{addStore}
-with the handler \texttt{storeHandler}. The \texttt{addStore 10} is a delayed
-function due to it using effects. This means it will not run until we tell it to
-avoid errors with the handlers. Given we are handling it we force it to run with
-`!'.
-
+with the handler \texttt{storeHandler}. 
 
 \section{Affine and `Multi-Shot' Handlers}
 
@@ -262,6 +270,10 @@ accomplish one task well to solve more complex tasks \cite{raymond2003art}. The
 idea of many small modular components has spread to many areas of computer
 science including effect oriented programming.
 
+\section{Effect Based File Systems}
+
+Continuations in operating systems \cite{DBLP:conf/context/KiselyovS07}.
+
 \section{Effect Handlers and UNIX}
 
 In chapter 2 of his 2022 thesis, Daniel Hillerstr\"{o}m
@@ -278,6 +290,106 @@ worth mentioning \texttt{sed} has $20,000+$ lines of code} from which he only
 implements string replacement.
 
 \chapter{Methods}
+
+\section{Effect Oreinted Programming in Unison}
+
+As is shown in section \ref{subsection:unison}, effect oriented programming in
+Unison is composed of an effect definition with an effect signature and a set
+of effect operations and any handlers for that effect signature.
+
+\section{Program Status}
+\label{status}
+
+In \texttt{Unix} programs must provide a code when they exit (usually 0 for
+success and anything else for failure). To accomplish this we define a new effect
+signature \texttt{Status} which provides the \texttt{exit} operation. The
+\texttt{exit} operation takes one argument of type \texttt{Nat} \footnote{a
+positive integer in Unison} and returns the unit type.
+
+\begin{lstlisting}
+unique ability Status
+       where
+            exit: Nat -> ()
+\end{lstlisting}
+
+The implementation for exit has no effect it simply consumes the exit code and
+returns. The handler however returns a \texttt{Nat} return code. If an exit
+operation is encountered we return the value given to the exit operation. The
+return case simply returns 0 as if we reach the end of a function being handled
+by the handler then we can assume it was successful and return 0.
+
+\begin{lstlisting}
+exitHandler : Request {g, Status} x -> Nat
+exitHandler request =
+    match request with
+          { result } -> 0
+          { exit v -> resume } -> v
+\end{lstlisting}
+
+\section{Basic I/O}
+\label{io}
+
+The \emph{effect signature} \texttt{BasicIO} is used for simple I/O operations.
+The first and only \emph{effect operation} of \texttt{BasicIO} is \texttt{echo}
+which takes an argument of type \texttt{Text} and returns the unit
+type \texttt{()}. 
+
+\begin{lstlisting}
+unique ability BasicIO where
+  echo: Text -> ()
+\end{lstlisting}
+
+
+\begin{tcolorbox}[colback=gray!10, colframe=black, arc=0pt, outer arc=0pt]
+
+\section*{Program 1 --- Hello World}
+
+By combining the operations of Status and BasicIO we can write a simple program that prints ``Hello, World!" and then exits with the successful error code. Notice that the operations are invoked in the same way as functions. In this case they are being used inside a function. It would be possible to implement a simple shell for these commands however that is outside the scope of this project.
+
+\begin{lstlisting}
+greetAndExit : a ->{BasicIO, Status} ()
+greetAndExit _ = echo "Hello, World!\n"; exit 0
+\end{lstlisting}
+
+By composing the two handlers in sections \ref{status} and \ref{io} we can run the program.
+
+\begin{lstlisting}
+runGreetAndExit _ = handle (handle !greetAndExit with basicIO) with exitHandler
+\end{lstlisting}
+
+By running this function with the unison codebase manager we get
+
+\begin{lstlisting}[style=terminal]
+Hello, World!
+
+  0
+\end{lstlisting}
+\end{tcolorbox}
+
+\section{Users and Environment}
+
+\section{Nondeterminism}
+
+\begin{lstlisting}
+unique type PState a e = Done a | Paused ('{e} PState a e)
+\end{lstlisting}
+
+
+\begin{lstlisting}
+unique ability Interrupt
+    where
+        interrupt: {Interrupt } ()
+
+unique ability TimeSharing
+    where
+        fork: {TimeSharing } Boolean
+\end{lstlisting}
+
+\section{Serial File System}
+
+\section{Pipes}
+
+\section{Unix Fork}
 
 \chapter{Results}
 
