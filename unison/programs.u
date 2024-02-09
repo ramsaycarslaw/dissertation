@@ -1,0 +1,13 @@
+
+cat : Text ->{FileRW, State FileSystemT, BasicIO} ()
+cat name = let fs = get ()
+               ino = fopen name fs
+               text = fread ino fs
+               match text with
+                   Left text -> echo text
+                   Right () -> ()
+
+prog _ = cat "test.txt"
+
+catTest : a ->{IO, Exception} ()
+catTest _ = handle (handle (handle (handle (!prog) with fileCO) with fileRW) with basicIO) with runState initialFileSystem
