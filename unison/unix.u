@@ -42,61 +42,24 @@ It allows for whoami and su commands to be run.
 
 -- The users (hard coded)
 unique type User = Alice | Bob | Root
-structural type Environment = Environment User
-
--- Each user has a unique environment
-environments : List (User, Environment)
-environments = [(Alice, Environment Alice),
-                (Bob, Environment Bob),
-                (Root, Environment Root)]
 
 unique ability Session
     where
-        su: User -> {Session } Environment
-        whoami: {Session } Text
+        su: User -> {Session } ()
+        ask: () -> {Session } Text
 
--- Helper function because unison cannot infer equity on custom types
-userEquals: User -> User -> Boolean
-userEquals user1 user2 =
-    match user1 with
-        Alice -> match user2 with
-            Alice -> true
-            _ -> false
-        Bob -> match user2 with
-            Bob -> true
-            _ -> false
-        Root -> match user2 with
-            Root -> true
-            _ -> false
+whoami: '{Session} Text
+whoami _ = ask ()
 
--- returns the environment of a user, usually from the hard coded environments
-envOf: (User, [(User, Environment)]) -> Environment
-envOf t = match t with
-    (user, envStore) ->
-        match envStore with
-            [] -> Environment user -- TODO add failure here
-            (user', env) +: rest ->
-                if userEquals user user' then env
-                else envOf (user, rest)
-
-sessionManager : Environment -> Request {Session} a -> a
-sessionManager initial request =
+env: User -> Request {Session} a -> a
+env user request = 
     match request with
-          { su user -> resume }
-            -> newEnv = envOf (user, environments)
-               -- We fecth the correct environment and then resume with it
-               handle resume newEnv with sessionManager newEnv
-          { whoami -> resume}
-            -> match initial with
-                -- this could probbaly be made generic with some User -> Text function
-                Environment Alice -> handle resume "alice" with sessionManager initial
-                Environment Bob -> handle resume "bob" with sessionManager initial
-                Environment Root -> handle resume "root" with sessionManager initial
-          { result } -> result
-
--- shorthand
-initialEnv : Environment
-initialEnv = envOf (Root, environments)
+        {result} -> result
+        { ask () -> resume } -> match user with 
+            Alice -> handle resume "alice" with env user
+            Bob -> handle resume "bob" with env user
+            Root -> handle resume "root" with env user
+        {su user' -> resume} -> handle resume () with env user'
 
 {-
       Time Sharing
@@ -108,7 +71,6 @@ unique ability Interrupt
         interrupt: {Interrupt } ()
 
 
--- unique type PState a = Done a | Paused (Unit ->{Interrupt} a)
 unique type PState a e = Done a | Paused ('{e} PState a e)
 
 interruptWrite result =
@@ -119,13 +81,7 @@ interruptWrite result =
             handle resume () with interruptWrite
         { result } -> ()
 
---reifyProcess : Request {Interrupt} a -> PState a e
---reifyProcess request =
---    match request with
---        { interrupt -> resume } -> ( handle resume with reifyProcess )
---        { result } -> Done result
-
-
+reifyProcess : Request {Interrupt, e} a -> PState a e
 reifyProcess request =
     match request with
         { interrupt -> resume } -> Paused (_ -> handle !resume with reifyProcess )
@@ -148,10 +104,6 @@ sched ps done =
         [] -> done
         (Done res) +: ps' -> sched ps' (res lib.base.data.List.+: done)
         (Paused m) +: ps' -> sched (ps' lib.base.data.List.++ (handle !m with nondet)) done
-
---schedule : [PState a {e, TimeSharing}] ->{e} [a]
---schedule processes =
---    sched processes []
 
 timeshare : '{g, Interrupt, TimeSharing} o ->{g} [o]
 timeshare m = sched [Paused (_ -> handle !m with reifyProcess)] []
@@ -487,21 +439,21 @@ unique ability Await a
     where
         await: () -> {Await } a
 
-unique ability Yeild a
+unique ability Yield a
     where
-        yeild: a -> {Yeild } ()
+        yield: a -> {Yield } ()
 
---pipe : '{Yeild b, e} a -> '{Await b, e} a ->{e} a
+--pipe : '{Yield b, e} a -> '{Await b, e} a ->{e} a
 --pipe p c = handle c () with
 --                (cases
 --                    { x } -> x
---                    { await () -> resume } -> copipe resume c p)
+--                    { await () -> resume } -> copipe resume p)
 --
---copipe : b -> {Await b, e} a -> '{Yeild b, e} a ->{e} a
+--copipe : b -> {Await b, e} a -> '{yield b, e} a ->{e} a
 --copipe p c = handle p () with
 --                (cases
 --                    { x } -> x
---                    { yeild y -> resume } -> pipe ('resume) c y )
+--                    { yield y -> resume } -> pipe ('resume) c y )
 
 {-
     Process Syncronization
@@ -525,7 +477,7 @@ runNext = cases Sstate q done pid pnext ->
         (pid', Blocked pid'' resume) +: q' -> runNext (Sstate (q' lib.base.data.List.++ [(pid', Blocked pid'' resume)]) done pid pnext)
         (pid', Ready resume) +: q' -> []
 
-scheduler: Sstate a e -> Request {Co} a ->{e} List (Nat, a)
+scheduler: Sstate a e -> Request {Co, e} a ->{e} List (Nat, a)
 scheduler st request = match request with 
     { result } -> 
         let (Sstate q done pid pnext) = st 
@@ -536,19 +488,19 @@ scheduler st request = match request with
             (Sstate q done pid pnext) = st
             pid' = pnext
             pnext' = pnext + 1
-            q' = q --lib.base.data.List.++ [(pid', Ready resume')]
+            q' = q lib.base.data.List.++ [(pid', Ready resume')]
             handle resume pid' with scheduler (Sstate q' done pid pnext')
     { wait pid -> resume } -> 
         let resume' = (Proc (st -> handle resume () with scheduler st))
             (Sstate q done pid pnext) = st
             q' = if processExists pid q then
-                     q --lib.base.data.List.++ [(pid, Blocked pid resume')]
-                 else q --lib.base.data.List.++ [(pid, Ready resume')]
+                     q lib.base.data.List.++ [(pid, Blocked pid resume')]
+                 else q lib.base.data.List.++ [(pid, Ready resume')]
             runNext (Sstate q' done pid pnext)
     { uinterrupt () -> resume } -> 
         let resume' = (Proc (st -> handle resume () with scheduler st))
             (Sstate q done pid pnext) = st
-            q' = q --lib.base.data.List.++ [(pid, Ready resume')]
+            q' = q lib.base.data.List.++ [(pid, Ready resume')]
             runNext (Sstate q' done pid pnext)
 
 processExists: Nat -> [(Nat, Pstate a e)] -> Boolean
@@ -558,6 +510,28 @@ processExists pid processes =
         (pid', process) +: rest ->
             if pid == pid' then true
             else processExists pid rest
+
+timeshare2 : '{g, Co} a ->{g} List (Nat, a)
+timeshare2 m = handle !m with scheduler (Sstate [] [] 1 2)
+
+init: '{e} a ->{e, Co} ()
+init main = let pid = ufork ()
+                if pid == 0 then
+                    _ = main ()
+                    ()
+                else
+                    wait pid
+
+--nondet2 : Request {TimeSharing} a -> [a]
+--nondet2 request =
+--    match request with
+--        { fork -> resume } -> let pid = ufork ()
+--                                if pid == 0 then
+--                                    handle resume true with nondet2
+--                                else
+--                                    handle resume false with nondet2
+--        { result } -> [result]
+
 
  {-
     Util 
@@ -591,14 +565,14 @@ runGreetAndExit _ = handle (handle !greetAndExit with basicIO) with exitHandler
 
 ioAndUsers : a ->{Session, Status, BasicIO} ()
 ioAndUsers _ = 
-    if whoami == "root" then
+    if whoami () == "root" then
         echo "Logged in as root\n";
         exit 0
     else
         echo "Permission denied\n";
         exit 1
     
-runIOandUsers _ = handle (handle (handle !ioAndUsers with sessionManager initialEnv) with exitHandler) with basicIO
+--runIOandUsers _ = handle (handle (handle !ioAndUsers with sessionManager initialEnv) with exitHandler) with basicIO
     
 ritchie _ = echo "UNIX is basically\n"; echo "a simple operating system\n"; echo "but you have to be a genius to understand the simplicity\n"
 hamlet _ = echo "To be, or not to be,\n"; echo "that is the question:\n"; echo "Wether 'tis nobler in the mind to suffer\n";
@@ -612,44 +586,6 @@ forkAndIO _ =
 
 runForkAndIO _ = handle (handle !forkAndIO with basicIO) with nondet
         
-{-
-    Tests
-    ======
--}
-
--- Test exiting
-testProgram0 _ = exit 42
---> handle !testProgram0 with exitHandler
-
-testProgram1 _ =
-    whoami
---> handle !testProgram1 with whoamiHandler
-
-testProgram2 _ =
-    handle whoami with sessionManager (handle su Alice with sessionManager initialEnv)
---> handle !testProgram2 with sessionManager initialEnv
-
-proc1 _ = handle [echo "Hello, ", echo "World!"] with basicIO
-proc2 _ = handle [echo "Goodbye, ", echo "Code!"] with basicIO
-
-testProgram3 _ =
-    handle whoami with sessionManager (handle su Bob with sessionManager initialEnv)
-
-testProgram4 _ =
-    if fork then
-        [handle whoami with sessionManager (handle su Bob with sessionManager initialEnv)]
-     else
-        [handle whoami with sessionManager (handle su Alice with sessionManager initialEnv)]
---> handle !testProgram4 with nondet
-
---ritchie _ = echo "UNIX is basically\n"; echo "a simple operating system\n"; echo "but you have to be a genius to understand the simplicity\n"
---hamlet _ = echo "To be, or not to be,\n"; echo "that is the question:\n"; echo "Wether 'tis nobler in the mind to suffer\n";
-
-testProgram5 _ =
-    handle (handle (if fork then [!ritchie] else [!hamlet]) with basicIO) with nondet
-
-testProgram6 _ = timeshare (_ -> (handle (handle (if fork then [!ritchie] else [!hamlet]) with interruptWrite) with basicIO))
-
-testProgram7 _ = handle (get (handle (handle (echo "Hello, World!\n") with systemIO) with fileRW)) with runState initialFileSystem
+--testProgram7 _ = handle (get (handle (handle (echo "Hello, World!\n") with systemIO) with fileRW)) with runState initialFileSystem
 
 -- testProgram8 _ = timeshare2 (_ -> (handle (handle (if ufork () == 0 then [!ritchie] else [!hamlet]) with interruptWrite) with basicIO))

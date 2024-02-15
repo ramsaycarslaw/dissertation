@@ -13,6 +13,14 @@
 \definecolor{codegray}{rgb}{0.5,0.5,0.5}
 \definecolor{codepurple}{rgb}{0.58,0,0.82}
 \definecolor{backcolour}{rgb}{0.95,0.95,0.92}
+\definecolor{gray}{HTML}{666666}		%#666666
+\definecolor{lightbule}{HTML}{006699}		%#006699
+\definecolor{lightgreen}{HTML}{669900}		%#669900
+\definecolor{bluegreen}{HTML}{33997e}		%#33997e
+\definecolor{magenta}{HTML}{d94a7a}		%#d94a7a
+\definecolor{orange}{HTML}{e2661a}		%#e2661a
+\definecolor{purple}{HTML}{7d4793}		%#7d4793
+\definecolor{green}{HTML}{718a62}		%#718a62
 
 \lstdefinestyle{mystyle}{
     backgroundcolor=\color{backcolour},
@@ -30,6 +38,27 @@
     showstringspaces=false,
     showtabs=false,
     tabsize=2
+}
+
+\lstdefinelanguage{unison}{
+  %keyword1&2&6
+  morekeywords = [1]{ability, type, handle, with, if, then, else, match, cases},
+  %keyword3
+  morekeywords = [2]{unique, structural},
+  %keyword4
+  morekeywords = [3]{Status, BasicIO, User, Environment, Session, PState, Done, Paused, Interrupt, TimeSharing, Alice, Bob, Root},
+  %keyword5
+  morekeywords = [4]{Nat, Text, List, Tuple, (), Request, Boolean, IO, Exception},
+  keywordstyle = [1]\color{bluegreen},
+  keywordstyle = [2]\color{lightgreen},
+  keywordstyle = [3]\color{codepurple},
+  keywordstyle = [4]\color{orange},
+  sensitive = true,
+  morecomment = [l]{--},
+  morecomment = [s]{\{-}{-\}},
+  commentstyle = \color{gray},
+  morestring = [b]",
+  stringstyle = \color{purple}
 }
 
 \lstdefinestyle{terminal}{
@@ -144,7 +173,7 @@ return, it must be run from an effectful function that is handled with an
 appropriate handler for \texttt{Store a}. Similarly, \texttt{put} takes an
 argument of type \texttt{a} and must be handled.
 
-\begin{lstlisting}[caption={An example of an effectful function that uses the \texttt{Store} effect}]
+\begin{lstlisting}[language=unison, caption={An example of an effectful function that uses the \texttt{Store} effect}]
 addStore : a -> {Store a} ()
 addStore x =
   y = get
@@ -289,9 +318,9 @@ There are also some partial implementations such as \texttt{sed} \footnote{It is
 worth mentioning \texttt{sed} has $20,000+$ lines of code} from which he only
 implements string replacement.
 
-\chapter{Methods}
+\chapter{Base Implementation}
 
-\section{Effect Oreinted Programming in Unison}
+\section{Effect Oriented Programming in Unison}
 
 As is shown in section \ref{subsection:unison}, effect oriented programming in
 Unison is composed of an effect definition with an effect signature and a set
@@ -306,11 +335,21 @@ signature \texttt{Status} which provides the \texttt{exit} operation. The
 \texttt{exit} operation takes one argument of type \texttt{Nat} \footnote{a
 positive integer in Unison} and returns the unit type.
 
-\begin{lstlisting}
+\begin{lstlisting}[language=unison]
 unique ability Status
        where
             exit: Nat -> ()
 \end{lstlisting}
+
+\subsection{Unique vs. Structural Types}
+
+In Unison, \texttt{unique} types are used when the name of the type is
+semantically important. The alternative is \texttt{structural} types which are
+used when the name of the type is not important and it can be stored as a hash
+without it's name. We use \texttt{unique} types for most effect as this is not
+a distributed application there is no need for \texttt{structural} types.
+
+\subsection{The Handler}
 
 The implementation for exit has no effect it simply consumes the exit code and
 returns. The handler however returns a \texttt{Nat} return code. If an exit
@@ -318,13 +357,21 @@ operation is encountered we return the value given to the exit operation. The
 return case simply returns 0 as if we reach the end of a function being handled
 by the handler then we can assume it was successful and return 0.
 
-\begin{lstlisting}
-exitHandler : Request {g, Status} x -> Nat
+\begin{lstlisting}[language=unison]
+exitHandler : Request {e, Status} x -> Nat
 exitHandler request =
     match request with
           { result } -> 0
           { exit v -> resume } -> v
 \end{lstlisting}
+
+\subsection{The Request Type}
+
+The \texttt{Request} type is a special type in Unison that allows for pattern
+matching on operations of an effect. In the braces are the effect types for the
+handler. The \texttt{Status} is the effect signature that is explicitly being
+handled. The \texttt{e} allows for any other effects in the computation to be
+passed through. The \texttt{x} is the return type of the computation.
 
 \section{Basic I/O}
 \label{io}
@@ -334,11 +381,34 @@ The first and only \emph{effect operation} of \texttt{BasicIO} is \texttt{echo}
 which takes an argument of type \texttt{Text} and returns the unit
 type \texttt{()}. 
 
-\begin{lstlisting}
+\begin{lstlisting}[language=unison]
 unique ability BasicIO where
   echo: Text -> ()
 \end{lstlisting}
 
+The handler for \texttt{BasicIO} is simply a wrapper for Unison's
+\texttt{putText} function which it uses to print the given text to
+\texttt{stdout}. It then handles the resumption with the same handler to handle
+any further \texttt{echo} calls.
+
+\begin{lstlisting}[language=unison]
+basicIO : Request {BasicIO} x ->{IO, Exception} ()
+basicIO result =
+    match result with
+        { echo text -> resume } -> 
+          putText stdOut text; 
+          handle resume () with basicIO
+        { result } -> ()
+\end{lstlisting}
+
+\subsection{IO and Exception abilities}
+
+The handler for \texttt{BasicIO} uses the \texttt{putText} function from
+Unison's standard library because of this we must include the \texttt{\{IO,
+Exeption\}} in the type signature to indicate that this function needs access
+to both the \texttt{IO} and \texttt{Exception} abilities in order to be run.
+Both of these abilities are built in and used for all input and output in
+unison.
 
 \begin{tcolorbox}[colback=gray!10, colframe=black, arc=0pt, outer arc=0pt]
 
@@ -346,14 +416,14 @@ unique ability BasicIO where
 
 By combining the operations of Status and BasicIO we can write a simple program that prints ``Hello, World!" and then exits with the successful error code. Notice that the operations are invoked in the same way as functions. In this case they are being used inside a function. It would be possible to implement a simple shell for these commands however that is outside the scope of this project.
 
-\begin{lstlisting}
+\begin{lstlisting}[language=unison]
 greetAndExit : a ->{BasicIO, Status} ()
 greetAndExit _ = echo "Hello, World!\n"; exit 0
 \end{lstlisting}
 
 By composing the two handlers in sections \ref{status} and \ref{io} we can run the program.
 
-\begin{lstlisting}
+\begin{lstlisting}[language=unison]
 runGreetAndExit _ = handle (handle !greetAndExit with basicIO) with exitHandler
 \end{lstlisting}
 
@@ -368,14 +438,98 @@ Hello, World!
 
 \section{Users and Environment}
 
+To introduce the concept of a user-space and users we can start by adding some
+hard coded users. For now, alice, bob and a root user: \texttt{unique type User
+= Alice | Bob | Root}. To add generic users we could replace the definition with 
+\texttt{unique type User = Text}, this would allow for the creation of new users.
+
+Next we introduce the \texttt{Session} signature for operations involving
+users. The operation \texttt{su} or \emph{substitute user} is used to change
+the environment to that of a different user. The \texttt{ask} operation can be
+used to access environment variables. Since the only variable we have now is
+\texttt{USER} the argument to ask is a unit.
+
+\begin{lstlisting}[language=unison]
+unique ability Session
+    where
+        su: User -> {Session } ()
+        ask: () -> {Session } Text
+\end{lstlisting}
+
+We can now implement the \textsc{Unix} command \texttt{whoami} with a wrapper
+around ask.
+
+\begin{lstlisting}[language=unison]
+whoami: '{Session} Text
+whoami _ = ask ()
+\end{lstlisting}
+
+\subsection{The Apostrophe in Unison}
+
+The \texttt{'} character in Unison is syntactic sugar for a function with a
+unit as the type of it's first argument. For example, the type signature of 
+\texttt{whoami} could be rewritten as \texttt{() ->\{Session\} Text}. This is 
+equivalent to \texttt{'\{Session\} Text}.
+
+\subsection{Environment as a handler}
+
+The handler for \texttt{Session} also takes a user as an argument, this is the
+user that is currently logged in. To switch user we simply handle the rest of
+the computation with the new user provided as the argument to \texttt{su}. Then
+when the computation ends we will be back in the environment of the old user.
+
+Due to the single environment variable being \texttt{USER}, \texttt{ask}
+performs the action of \texttt{whoami}. It keeps the user the same and returns
+the user as a string.
+
+\begin{lstlisting}[language=unison]
+env: User -> Request {Session} a -> a
+env user request = 
+    match request with
+        {result} -> result
+        { ask () -> resume } -> match user with 
+            Alice -> handle resume "alice" with env user
+            Bob -> handle resume "bob" with env user
+            Root -> handle resume "root" with env user
+        {su user' -> resume} -> handle resume () with env user'
+\end{lstlisting}
+
+In this way the environment is the handler itself as it contains the information such as which user is logged in. The handler can be extended to have parameterised environment variables making it the complete environment.
+
+\begin{tcolorbox}[colback=gray!10, colframe=black, arc=0pt, outer arc=0pt]
+  \section*{Program 2 --- Session Management}
+
+  \begin{lstlisting}[language=unison]
+    session _ = su Alice
+                echo (!whoami)
+                echo "\n"
+                su Bob
+                echo (!whoami)
+                echo "\n"
+                su Root
+                echo(!whoami)
+                echo "\n"
+  \end{lstlisting}
+
+
+  \begin{lstlisting}[style=terminal]
+    alice
+    bob
+    root
+      
+      ()
+\end{lstlisting}
+\end{tcolorbox}
+
+
 \section{Nondeterminism}
 
-\begin{lstlisting}
+\begin{lstlisting}[language=unison]
 unique type PState a e = Done a | Paused ('{e} PState a e)
 \end{lstlisting}
 
 
-\begin{lstlisting}
+\begin{lstlisting}[language=unison]
 unique ability Interrupt
     where
         interrupt: {Interrupt } ()
@@ -391,7 +545,9 @@ unique ability TimeSharing
 
 \section{Unix Fork}
 
-\chapter{Results}
+\chapter{Extensions}
+
+\chapter{Evaluation}
 
 \chapter{Conclusion}
 
