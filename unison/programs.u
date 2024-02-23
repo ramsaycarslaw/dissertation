@@ -11,3 +11,24 @@ prog _ = cat "test.txt"
 
 catTest : a ->{IO, Exception} ()
 catTest _ = handle (handle (handle (handle (!prog) with fileCO) with fileRW) with basicIO) with runState initialFileSystem
+
+--envVariables _ = su Alice
+--                 export "HOME" "/home/alice"
+--                 echo (ask "HOME")
+--                 echo "\n"
+--                 su Bob 
+--                 export "HOME" "/home/bob"
+--                 echo (ask "HOME")   
+--
+--envVariablesTest _ = handle (handle (handle (!envVariables) with env Root) with basicIO) with runState [(Alice, []), (Bob, []), (Root, [])]
+
+envVariables _ = 
+    adduser "alice"
+    su "alice"
+    export "HOME" "/home/alice"
+    echo (ask "HOME")
+    echo "\n"
+    adduser "bob"
+
+                
+envVariablesTest _ = handle (handle (handle (!envVariables) with env (Username "root")) with basicIO) with runState initialUserspace

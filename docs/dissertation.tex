@@ -8,6 +8,7 @@
 \usepackage{algpseudocode}
 \usepackage{xcolor}
 \usepackage{tcolorbox}
+\usepackage{subcaption}
 
 \definecolor{codegreen}{rgb}{0,0.6,0}
 \definecolor{codegray}{rgb}{0.5,0.5,0.5}
@@ -330,10 +331,11 @@ of effect operations and any handlers for that effect signature.
 \label{status}
 
 In \texttt{Unix} programs must provide a code when they exit (usually 0 for
-success and anything else for failure). To accomplish this we define a new effect
-signature \texttt{Status} which provides the \texttt{exit} operation. The
-\texttt{exit} operation takes one argument of type \texttt{Nat} \footnote{a
-positive integer in Unison} and returns the unit type.
+success and anything else for failure). The effect signature \texttt{Status}
+provides the \texttt{exit} operation which takes one argument of type
+\texttt{Nat} \footnote{a positive integer in Unison} and returns the unit type.
+A better definition would have exit return the empty type but unison does not
+have an empty type. The argument represents the return code.
 
 \begin{lstlisting}[language=unison]
 unique ability Status
@@ -346,10 +348,20 @@ unique ability Status
 In Unison, \texttt{unique} types are used when the name of the type is
 semantically important. The alternative is \texttt{structural} types which are
 used when the name of the type is not important and it can be stored as a hash
-without it's name. We use \texttt{unique} types for most effect as this is not
-a distributed application there is no need for \texttt{structural} types.
+without it's name. \texttt{unique} types are used for all effects as it has no
+real implication given the program is not distributed.
 
 \subsection{The Handler}
+
+The handler for \texttt{Status} is defined as:
+
+\begin{lstlisting}[language=unison]
+exitHandler : Request {e, Status} x -> Nat
+exitHandler request =
+    match request with
+          { result } -> 0
+          { exit v -> resume } -> abort
+\end{lstlisting}
 
 The implementation for exit has no effect it simply consumes the exit code and
 returns. The handler however returns a \texttt{Nat} return code. If an exit
@@ -357,13 +369,6 @@ operation is encountered we return the value given to the exit operation. The
 return case simply returns 0 as if we reach the end of a function being handled
 by the handler then we can assume it was successful and return 0.
 
-\begin{lstlisting}[language=unison]
-exitHandler : Request {e, Status} x -> Nat
-exitHandler request =
-    match request with
-          { result } -> 0
-          { exit v -> resume } -> v
-\end{lstlisting}
 
 \subsection{The Request Type}
 
@@ -436,6 +441,58 @@ Hello, World!
 \end{lstlisting}
 \end{tcolorbox}
 
+\subsection{Defining Multiple Handlers}
+
+Effects are not limited to just one handler. The semantics of echo can be
+changed without altering it's definition. For example, the \texttt{backwardsIO}
+handler below.
+
+\begin{lstlisting}[language=unison]
+backwardsIO : Request {BasicIO} x ->{IO, Exception} () 
+backwardsIO result =
+  match result with
+  { echo text -> resume } -> 
+    handle resume () with basicIO 
+    putText stdOut text;
+  { result } -> ()
+\end{lstlisting}
+
+In this case, the resumption is handled first and then the text is printed. The
+effect of this is best shown by running it side by side with \texttt{basicIO}
+on the following program.
+
+\begin{lstlisting}[language=unison]
+helloworld _ = echo "Hello,"; echo " World!\\n"
+\end{lstlisting}
+
+The output of running this program with each handler is shown in Figure \ref{fig:sidebyside}.
+
+\begin{figure}[h]
+  \label{fig:sidebyside}
+\begin{minipage}{0.5\textwidth}
+
+\begin{lstlisting}[style=terminal]
+> handle !helloworld with basicIO
+
+Hello, World!
+
+  ()
+\end{lstlisting}
+
+\end{minipage}%
+\begin{minipage}{0.5\textwidth}
+
+\begin{lstlisting}[style=terminal]
+ > handle !helloworld with backwardsIO
+
+ World!
+Hello,
+  ()
+\end{lstlisting}
+\end{minipage}
+\caption{The output of running \texttt{helloworld} with each handler.}
+\end{figure}
+
 \section{Users and Environment}
 
 To introduce the concept of a user-space and users we can start by adding some
@@ -494,10 +551,15 @@ env user request =
         {su user' -> resume} -> handle resume () with env user'
 \end{lstlisting}
 
-In this way the environment is the handler itself as it contains the information such as which user is logged in. The handler can be extended to have parameterised environment variables making it the complete environment.
+In this way the environment is the handler itself as it contains the
+information such as which user is logged in. The handler can be extended to
+have parameterised environment variables making it the complete environment.
 
 \begin{tcolorbox}[colback=gray!10, colframe=black, arc=0pt, outer arc=0pt]
   \section*{Program 2 --- Session Management}
+  
+  We can now compose the handlers we have written so far to switch between the
+  users and invoke \texttt{whoami}.
 
   \begin{lstlisting}[language=unison]
     session _ = su Alice
@@ -512,31 +574,137 @@ In this way the environment is the handler itself as it contains the information
   \end{lstlisting}
 
 
+  \begin{lstlisting}[language=unison]
+    runsession _ = handle (handle (handle !session with env Root) with basicIO) with exitHandler
+  \end{lstlisting}
+
+  The \texttt{env} handler requires we give the user that is logged in
+  initially as an argument so we pass \texttt{Root}. Notice we also handle the
+  program with the \texttt{exitHandler} even though we do not invoke
+  \texttt{exit} in the program. This is because by handling code with no \texttt{exit}'s
+  with the \texttt{exitHandler} we will get the return case which will return 0
+  indicating the program was successful.
+
   \begin{lstlisting}[style=terminal]
     alice
     bob
     root
       
-      ()
+      0
 \end{lstlisting}
 \end{tcolorbox}
 
 
 \section{Nondeterminism}
 
+To implement the \texttt{fork} command from \textsc{Unix} we can leverage
+deliberate non-determinism that is possible with effect handlers. We define the
+\texttt{fork} operation which returns a \texttt{Boolean} as a member of the
+\texttt{TimeSharing} signature.
+
 \begin{lstlisting}[language=unison]
-unique type PState a e = Done a | Paused ('{e} PState a e)
+unique ability TimeSharing
+    where
+        fork: Boolean
 \end{lstlisting}
 
+To use \texttt{fork} we can simply use it in control flow to create a branch.
+Where normally only one branch would be executed, the two branches become our
+two processes. For example:
+
+\begin{lstlisting}[language=unison]
+...
+if fork then 
+  process1 ()
+else 
+  process2 ()
+...
+\end{lstlisting}
+
+The handler for fork is also fairly simple:
+
+\begin{lstlisting}[language=unison]
+nondet : Request {TimeSharing} a -> [a]
+nondet request =
+    match request with
+        { fork -> resume } -> (handle resume true with nondet) lib.base.data.List.++ (handle resume false with nondet)
+        { result } -> [result]
+\end{lstlisting}
+
+The handler returns a list of values with the type \texttt{a} which is the
+return type of the computation. When we encounter a \texttt{fork} we resume
+with the values true and false and join the two lists that are created. The
+return case wraps the value in a list so that we can use the \texttt{++}
+operator.
+
+\subsection{Joining Lists in Unison}
+
+Unison's typechecker sometimes struggles inferring the type of \texttt{++}. For
+this reason we include the full path to the standard library where \texttt{++}
+is defined i.e. \texttt{lib.base.data.List.++}.
+
+\section{Scheduling}
+
+Now that we can create processes through \texttt{fork} it would be useful to be able to write scheduling algorithms. Currently \texttt{fork} will run the first process to completion, and then run the second process to completion. To begin scheduling we need to give the processes a method of stopping execution and giving control to the other process. We introduce the \texttt{Interrupt} signature with one operation also called \texttt{interrupt}.
 
 \begin{lstlisting}[language=unison]
 unique ability Interrupt
     where
         interrupt: {Interrupt } ()
+\end{lstlisting}
 
-unique ability TimeSharing
-    where
-        fork: {TimeSharing } Boolean
+Now that we have \texttt{interrupt} we can write an alternative handler for
+\texttt{BasicIO} that will \texttt{interrupt} before every IO operation,
+allowing for the other process to run first.
+
+\begin{lstlisting}[language=unison]
+interruptWrite : Request {e, BasicIO} x ->{e, Interrupt, BasicIO} ()
+interruptWrite result =
+    match result with
+        { echo text -> resume } -> 
+            interrupt
+            echo text 
+            handle resume () with interruptWrite
+        { result } -> ()
+\end{lstlisting}
+
+Note that we still need to provide a handler for \texttt{echo}, this handler
+simply injects interrupt in front of every instance of \texttt{echo}.
+
+In order to schedule processes we need to introduce state. Each process can either be \texttt{Done} (It has produced a return value) or \texttt{Paused} (It has been interrupted). \texttt{Paused} is a recursive definition as it contains a \texttt{PState} in it's type.
+
+\begin{lstlisting}[language=unison]
+unique type PState a e = Done a | Paused ('{e} PState a e)
+\end{lstlisting}
+
+The type \texttt{a} is the return type of the process and the \texttt{e} is an
+effect variable that represents any effects that are needed to run the
+\texttt{PState}. We can now implement the handler for \texttt{interrupt}.
+
+\begin{lstlisting}[language=unison]
+reifyProcess : Request {Interrupt, e} a -> PState a e
+reifyProcess request =
+    match request with
+        { interrupt -> resume } -> Paused (_ -> handle !resume with reifyProcess )
+        { result } -> Done result
+\end{lstlisting}
+
+In the case of an interrupt, the handler suspends the computation by making it
+an anonymous function with a unit type as it's first argument, and wrapping it
+in the paused datatype. This means we can run the \texttt{Paused} computations
+later by invoking that function we created. The return case simply wraps the
+value in the \texttt{Done} type.
+
+\begin{lstlisting}[language=unison]
+sched : [PState a {e, TimeSharing}] -> [a] ->{e} [a]
+sched ps done = 
+    match ps with
+        [] -> done
+        (Done res) +: ps' -> sched ps' (res lib.base.data.List.+: done)
+        (Paused m) +: ps' -> sched (ps' lib.base.data.List.++ (handle !m with nondet)) done
+
+timeshare : '{g, Interrupt, TimeSharing} o ->{g} [o]
+timeshare m = sched [Paused (_ -> handle !m with reifyProcess)] []
 \end{lstlisting}
 
 \section{Serial File System}
@@ -546,6 +714,199 @@ unique ability TimeSharing
 \section{Unix Fork}
 
 \chapter{Extensions}
+
+\section{Environment Variables}
+
+\begin{lstlisting}[language=unison]
+unique type User = Alice | Bob | Root
+
+unique ability Session
+    where
+        su: User -> ()
+        ask: Text -> Text
+        export: Text -> Text -> ()
+
+whoami: '{Session} Text
+whoami _ = ask "USER"
+
+env: User -> Request {Session} a ->{State [(User, [(Text, Text)])]} a
+env user request = 
+    match request with
+        {result} -> result
+
+        { ask var -> resume } -> 
+            match var with 
+                "USER" ->
+                    match user with 
+                        Alice -> handle resume "alice" with env user
+                        Bob -> handle resume "bob" with env user
+                        Root -> handle resume "root" with env user
+                var -> 
+                    let st = get ()
+                        envs = lookupEnvs user st
+                        val = lookupEnvVar var envs
+                        handle resume val with env user
+
+        {su user' -> resume} -> 
+            handle resume () with env user'
+
+        {export var val -> resume} -> 
+            let st = get ()
+                envs = lookupEnvs user st
+                envs' = modifyEnvVar var val envs
+                put (modifyEnvs user envs' st) 
+                handle resume () with env user
+
+lookupEnvVar: Text -> [(Text, Text)] -> Text
+lookupEnvVar var env =
+    match env with
+        [] -> ""
+        (var', val) +: rest ->
+            if var == var' then val
+            else lookupEnvVar var rest
+
+modifyEnvVar: Text -> Text -> [(Text, Text)] -> [(Text, Text)]
+modifyEnvVar var val env =
+    match env with
+        [] -> [(var, val)]
+        (var', val') +: rest ->
+            if var == var' then (var, val) +: rest
+            else (var', val') +: modifyEnvVar var val rest
+
+lookupEnvs: User -> [(User, [(Text, Text)])] -> [(Text, Text)]
+lookupEnvs user envs =
+    match envs with
+        [] -> []
+        (user', env) +: rest ->
+            if userEquals user user' then env
+            else lookupEnvs user rest
+
+modifyEnvs: User -> [(Text, Text)] -> [(User, [(Text, Text)])] -> [(User, [(Text, Text)])]
+modifyEnvs user env envs =
+    match envs with
+        [] -> [(user, env)]
+        (user', env') +: rest ->
+            if userEquals user user' then (user, env) +: rest
+            else (user', env') +: modifyEnvs user env rest
+
+userEquals: User -> User -> Boolean
+userEquals user user' =
+    match user with
+        Alice -> 
+            match user' with 
+                Alice -> true
+                _ -> false
+        Bob -> 
+            match user' with 
+                Bob -> true
+                _ -> false
+        Root -> 
+            match user' with 
+                Root -> true
+                _ -> false
+\end{lstlisting}
+
+\section{Generic Users}
+
+\begin{lstlisting}[language=unison]
+unique type User = Username Text
+
+unique ability Session
+    where
+        su: Text -> ()
+        ask: Text -> Text
+        export: Text -> Text -> ()
+        adduser: Text -> ()
+
+whoami: '{Session} Text
+whoami _ = ask "USER"
+
+env: User -> Request {Session} a ->{State [(User, [(Text, Text)])]} a
+env user request = 
+    match request with
+        {result} -> result
+
+        { ask var -> resume } -> 
+           let st = get ()
+               envs = lookupEnvs user st
+               val = lookupEnvVar var envs
+               handle resume val with env user
+
+        {su user' -> resume} -> 
+            if userExists (Username user') (get ()) then
+                handle resume () with env (Username user')
+            else 
+                handle resume () with env user   -- fail
+
+        {export var val -> resume} -> 
+            let st = get ()
+                envs = lookupEnvs user st
+                envs' = modifyEnvVar var val envs
+                put (modifyEnvs user envs' st) 
+                handle resume () with env user
+
+        {adduser user' -> resume} ->
+            if userToText user == "root" then
+                let st = get ()
+                    newuser = (Username user')
+                    newvars = [("USER", user')]
+                    newenv = modifyEnvs newuser newvars st
+                    if (userExists newuser st) then
+                        put newenv
+                        handle resume () with env newuser
+                    else 
+                        handle resume () with env user
+            else 
+                handle resume () with env user   -- fail
+
+lookupEnvVar: Text -> [(Text, Text)] -> Text
+lookupEnvVar var env =
+    match env with
+        [] -> ""
+        (var', val) +: rest ->
+            if var == var' then val
+            else lookupEnvVar var rest
+
+modifyEnvVar: Text -> Text -> [(Text, Text)] -> [(Text, Text)]
+modifyEnvVar var val env =
+    match env with
+        [] -> [(var, val)]
+        (var', val') +: rest ->
+            if var == var' then (var, val) +: rest
+            else (var', val') +: modifyEnvVar var val rest
+
+lookupEnvs: User -> [(User, [(Text, Text)])] -> [(Text, Text)]
+lookupEnvs user envs =
+    match envs with
+        [] -> []
+        (user', env) +: rest ->
+            if userToText user == userToText user' then env
+            else lookupEnvs user rest
+
+modifyEnvs: User -> [(Text, Text)] -> [(User, [(Text, Text)])] -> [(User, [(Text, Text)])]
+modifyEnvs user env envs =
+    match envs with
+        [] -> [(user, env)]
+        (user', env') +: rest ->
+            if userToText user == userToText user' then (user, env) +: rest
+            else (user', env') +: modifyEnvs user env rest
+
+userExists: User -> [(User, [(Text, Text)])] -> Boolean
+userExists user envs =
+    match envs with
+        [] -> false
+        (user', env) +: rest ->
+            if userToText user == userToText user' then true
+            else userExists user rest
+
+userToText: User -> Text
+userToText user = 
+    let (Username username) = user
+        username
+
+initialUserspace : [(User, [(Text, Text)])]
+initialUserspace = [(Username "root", [("USER", "root")] )]
+\end{lstlisting}
 
 \chapter{Evaluation}
 

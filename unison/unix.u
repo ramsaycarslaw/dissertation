@@ -5,7 +5,7 @@
 
 unique ability BasicIO
     where
-        echo: Text -> {BasicIO } ()
+        echo: Text -> ()
 
 basicIO : Request {BasicIO} x ->{IO, Exception} ()
 basicIO result =
@@ -41,25 +41,103 @@ It allows for whoami and su commands to be run.
 -}
 
 -- The users (hard coded)
-unique type User = Alice | Bob | Root
+unique type User = Username Text
 
 unique ability Session
     where
-        su: User -> {Session } ()
-        ask: () -> {Session } Text
+        su: Text -> ()
+        ask: Text -> Text
+        export: Text -> Text -> ()
+        adduser: Text -> ()
 
 whoami: '{Session} Text
-whoami _ = ask ()
+whoami _ = ask "USER"
 
-env: User -> Request {Session} a -> a
+env: User -> Request {Session} a ->{State [(User, [(Text, Text)])]} a
 env user request = 
     match request with
         {result} -> result
-        { ask () -> resume } -> match user with 
-            Alice -> handle resume "alice" with env user
-            Bob -> handle resume "bob" with env user
-            Root -> handle resume "root" with env user
-        {su user' -> resume} -> handle resume () with env user'
+
+        { ask var -> resume } -> 
+           let st = get ()
+               envs = lookupEnvs user st
+               val = lookupEnvVar var envs
+               handle resume val with env user
+
+        {su user' -> resume} -> 
+            if userExists (Username user') (get ()) then
+                handle resume () with env (Username user')
+            else 
+                handle resume () with env user   -- fail
+
+        {export var val -> resume} -> 
+            let st = get ()
+                envs = lookupEnvs user st
+                envs' = modifyEnvVar var val envs
+                put (modifyEnvs user envs' st) 
+                handle resume () with env user
+
+        {adduser user' -> resume} ->
+            if userToText user == "root" then
+                let st = get ()
+                    newuser = (Username user')
+                    newvars = [("USER", user')]
+                    newenv = modifyEnvs newuser newvars st
+                    if (userExists newuser st) then
+                        put newenv
+                        handle resume () with env newuser
+                    else 
+                        handle resume () with env user  -- fail
+            else 
+                handle resume () with env user   -- fail
+
+lookupEnvVar: Text -> [(Text, Text)] -> Text
+lookupEnvVar var env =
+    match env with
+        [] -> ""
+        (var', val) +: rest ->
+            if var == var' then val
+            else lookupEnvVar var rest
+
+modifyEnvVar: Text -> Text -> [(Text, Text)] -> [(Text, Text)]
+modifyEnvVar var val env =
+    match env with
+        [] -> [(var, val)]
+        (var', val') +: rest ->
+            if var == var' then (var, val) +: rest
+            else (var', val') +: modifyEnvVar var val rest
+
+lookupEnvs: User -> [(User, [(Text, Text)])] -> [(Text, Text)]
+lookupEnvs user envs =
+    match envs with
+        [] -> []
+        (user', env) +: rest ->
+            if userToText user == userToText user' then env
+            else lookupEnvs user rest
+
+modifyEnvs: User -> [(Text, Text)] -> [(User, [(Text, Text)])] -> [(User, [(Text, Text)])]
+modifyEnvs user env envs =
+    match envs with
+        [] -> [(user, env)]
+        (user', env') +: rest ->
+            if userToText user == userToText user' then (user, env) +: rest
+            else (user', env') +: modifyEnvs user env rest
+
+userExists: User -> [(User, [(Text, Text)])] -> Boolean
+userExists user envs =
+    match envs with
+        [] -> false
+        (user', env) +: rest ->
+            if userToText user == userToText user' then true
+            else userExists user rest
+
+userToText: User -> Text
+userToText user = 
+    let (Username username) = user
+        username
+
+initialUserspace : [(User, [(Text, Text)])]
+initialUserspace = [(Username "root", [("USER", "root")] )]
 
 {-
       Time Sharing
@@ -73,6 +151,7 @@ unique ability Interrupt
 
 unique type PState a e = Done a | Paused ('{e} PState a e)
 
+interruptWrite : Request {e, BasicIO} x ->{e, Interrupt, BasicIO} ()
 interruptWrite result =
     match result with
         { echo text -> resume } -> 
@@ -117,15 +196,6 @@ unique ability State a
        where
             put: a -> ()
             get: () -> a
-
---runState : (b, Request {State b} a) -> (b, a)
---runState pair =
---    match pair with 
---        (s, request) ->
---        match request with
---            { result } -> (s, result)
---            { put s' -> resume } -> (s', resume ())
---            { get () -> resume } -> (s, resume s)
 
 runState : a -> Request {State a} b -> b
 runState v request =
@@ -522,6 +592,80 @@ init main = let pid = ufork ()
                 else
                     wait pid
 
+{-
+    Permissions
+    ============
+-}
+
+unique type Permission = Read | Write | AddUser
+
+
+permissions: User -> Request {Session} a ->{Session, State [(Text, [Permission])]} a
+permissions user request = 
+    match request with
+        {ask var -> resume} -> 
+            let st = get ()
+                perms = lookupPermission var st
+                if allowed Read perms then
+                    answer = ask var
+                    handle resume answer with permissions user 
+                else 
+                    handle resume "" with permissions user -- fail, permission denied
+        {su user' -> resume} -> 
+            handle resume () with permissions (Username user')
+        {adduser user' -> resume} -> 
+            let st = get ()
+                (Username username) = user
+                perms = lookupPermission username st
+                if allowed AddUser perms then
+                    adduser user'
+                    handle resume () with permissions user
+                else 
+                    handle resume () with permissions user -- fail, permission denied
+        {export var val -> resume} -> 
+            let st = get ()
+                (Username username) = user
+                perms = lookupPermission username st
+                if allowed Write perms then
+                    export var val
+                    handle resume () with permissions user
+                else 
+                    handle resume () with permissions user -- fail, permission denied
+        {result} -> result
+
+lookupPermission: Text -> [(Text, [Permission])] -> [Permission]
+lookupPermission var perms =
+    match perms with
+        [] -> []
+        (var', perms') +: rest ->
+            if var == var' then perms'
+            else lookupPermission var rest
+
+allowed: Permission -> [Permission] -> Boolean
+allowed perm perms =
+    match perms with
+        [] -> false
+        perm' +: rest ->
+            if permEquals perm perm' then true
+            else allowed perm rest
+
+permEquals : Permission -> Permission -> Boolean
+permEquals perms1 perms2 = 
+    match perms1 with 
+        Read -> 
+            match perms2 with 
+                Read -> true
+                _ -> false
+        Write -> 
+            match perms2 with 
+                Write -> true
+                _ -> false
+        AddUser -> 
+            match perms2 with 
+                AddUser -> true
+                _ -> false
+
+
 --nondet2 : Request {TimeSharing} a -> [a]
 --nondet2 request =
 --    match request with
@@ -531,7 +675,6 @@ init main = let pid = ufork ()
 --                                else
 --                                    handle resume false with nondet2
 --        { result } -> [result]
-
 
  {-
     Util 
@@ -553,10 +696,20 @@ init main = let pid = ufork ()
     ======================
 -}
 
-greetAndExit : a ->{BasicIO, Status} ()
-greetAndExit _ = echo "Hello, World!\n"; exit 0
+greetAndExit _ = echo "Hello, World!\n"; exit 1; echo "Goodbye, World!\n"
 
 runGreetAndExit _ = handle (handle !greetAndExit with basicIO) with exitHandler
+
+backwardsIO : Request {BasicIO} x ->{IO, Exception} () 
+backwardsIO result = match result with
+    { echo text -> resume } ->  
+        handle resume () with basicIO 
+        putText stdOut text;
+    { result } -> ()
+
+multiHandlers _ = echo "Hello,"; echo " World!\n"
+
+runMultiHandlers _ = handle !multiHandlers with basicIO
 
 {-
     Examples
