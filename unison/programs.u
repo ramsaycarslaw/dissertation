@@ -1,34 +1,94 @@
 
-cat : Text ->{FileRW, State FileSystemT, BasicIO} ()
-cat name = let fs = get ()
-               ino = fopen name fs
-               text = fread ino fs
-               match text with
-                   Left text -> echo text
-                   Right () -> ()
+{-
+    BasicIO
+-}
 
-prog _ = cat "test.txt"
+backwardsIO : Request {BasicIO} a ->{IO, Exception} a
+backwardsIO result = match result with
+    { echo text -> resume } ->  
+        let thunk = handle resume () with basicIO 
+            putText stdOut text;
+            thunk
+    { result } -> result
 
-catTest : a ->{IO, Exception} ()
-catTest _ = handle (handle (handle (handle (!prog) with fileCO) with fileRW) with basicIO) with runState initialFileSystem
+multiHandlers _ = echo "Hello,"; echo " World!\n"
 
---envVariables _ = su Alice
---                 export "HOME" "/home/alice"
---                 echo (ask "HOME")
---                 echo "\n"
---                 su Bob 
---                 export "HOME" "/home/bob"
---                 echo (ask "HOME")   
---
---envVariablesTest _ = handle (handle (handle (!envVariables) with env Root) with basicIO) with runState [(Alice, []), (Bob, []), (Root, [])]
+runMultiHandlers _ = handle !multiHandlers with basicIO
+
+{-
+    Filesystem
+-}
+
+cat : Text ->{BasicIO, FileRW, FileCO} ()
+cat name = echo (read (open name))
+
+catTest _ = 
+    write ((open "test.txt"), "Hello, World!")
+    cat "test.txt"
+
+runCat _ = unix catTest
+
+{-
+    Userspace
+-}
 
 envVariables _ = 
+    echo !whoami
+    echo "\n"
     adduser "alice"
+    grant "alice" Write
+    grant "alice" Read
+    grant "alice" AddUser
+    grant "alice" Grant
+
     su "alice"
     export "HOME" "/home/alice"
     echo (ask "HOME")
     echo "\n"
     adduser "bob"
+    grant "bob" Read
+    adduser "bob"
+
+    su "bob"
+    echo (ask "HOME")
 
                 
-envVariablesTest _ = handle (handle (handle (!envVariables) with env (Username "root")) with basicIO) with runState initialUserspace
+envVariablesTest _ = unix envVariables
+
+{-
+    Filesystem
+-}
+
+mv : Text -> Text ->{State FileSystemT, FileRW, FileCO, BasicIO} ()
+mv src dest = 
+    let file = read (open src)
+        _ = create src
+        write ((create dest), file)
+
+testMv : '{BasicIO, FileCO, FileRW, State FileSystemT} ()
+testMv _ = 
+    _ = write ((open "test.txt"), "Hello, World!")
+    mv "test.txt" "test2.txt"
+    echo (read (open "test2.txt"))
+    echo "\n"
+
+runTestMv : '{IO, Exception} ()
+runTestMv _ = handle (handle (handle (handle (handle !testMv with basicIO) with fileCO) with fileRW) with runState initialFileSystem) with warn
+
+{-
+    Process Synchronization
+-}
+
+
+ritchie _ = echo "UNIX is basically\n"; echo "a simple operating system\n"; echo "but you have to be a genius to understand the simplicity\n"
+hamlet _ = echo "To be, or not to be,\n"; echo "that is the question:\n"; echo "Wether 'tis nobler in the mind to suffer\n";
+
+proc _ = let pid = ufork
+             if pid == 0
+             then ritchie ()
+             else 
+                su "bob"
+                wait pid 
+                hamlet ()
+
+runProc _ = unix proc

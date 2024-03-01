@@ -43,11 +43,11 @@
 
 \lstdefinelanguage{unison}{
   %keyword1&2&6
-  morekeywords = [1]{ability, type, handle, with, if, then, else, match, cases},
+  morekeywords = [1]{ability, type, handle, with, if, then, else, match, cases, let},
   %keyword3
   morekeywords = [2]{unique, structural},
   %keyword4
-  morekeywords = [3]{Status, BasicIO, User, Environment, Session, PState, Done, Paused, Interrupt, TimeSharing, Alice, Bob, Root},
+  morekeywords = [3]{Status, BasicIO, User, Environment, Session, PState, Done, Paused, Interrupt, TimeSharing, Alice, Bob, Root, State, FileSystem, FileSystemT, FileRW, FileCO, FileLU, INode, INodeT, IList, IListT, DataRegion, DataRegionT, Directory, DirectoryT},
   %keyword5
   morekeywords = [4]{Nat, Text, List, Tuple, (), Request, Boolean, IO, Exception},
   keywordstyle = [1]\color{bluegreen},
@@ -333,15 +333,29 @@ of effect operations and any handlers for that effect signature.
 In \texttt{Unix} programs must provide a code when they exit (usually 0 for
 success and anything else for failure). The effect signature \texttt{Status}
 provides the \texttt{exit} operation which takes one argument of type
-\texttt{Nat} \footnote{a positive integer in Unison} and returns the unit type.
-A better definition would have exit return the empty type but unison does not
-have an empty type. The argument represents the return code.
+\texttt{Nat} \footnote{a positive integer in Unison} and returns the empty type
+which is defined \texttt{unique type Empty =}. The argument represents the
+return code.
 
 \begin{lstlisting}[language=unison]
 unique ability Status
        where
-            exit: Nat -> ()
+            exit: Nat -> Empty
 \end{lstlisting}
+
+We can now use this to indicate program status. For example:
+
+\begin{lstlisting}[language=unison]
+  --- some functionality 
+
+  if somethingWentWrong == true then
+    exit 1
+  else
+    print "Hello, World"
+\end{lstlisting}
+
+There is no explicit exit 0 on the else branch. This is because the default
+state of a program should be 0, it should not need an explicit \texttt{exit 0}.
 
 \subsection{Unique vs. Structural Types}
 
@@ -418,6 +432,7 @@ unison.
 \begin{tcolorbox}[colback=gray!10, colframe=black, arc=0pt, outer arc=0pt]
 
 \section*{Program 1 --- Hello World}
+\label{prog:helloworld}
 
 By combining the operations of Status and BasicIO we can write a simple program that prints ``Hello, World!" and then exits with the successful error code. Notice that the operations are invoked in the same way as functions. In this case they are being used inside a function. It would be possible to implement a simple shell for these commands however that is outside the scope of this project.
 
@@ -493,12 +508,38 @@ Hello,
 \caption{The output of running \texttt{helloworld} with each handler.}
 \end{figure}
 
+\section{A Unix Function}
+
+When we start composing handlers like in Program \hyperref[prog:helloworld]{1}
+the \texttt{handle (handle (...) with ... ) with ...)} syntax can start to get
+verbose. To solve this we will introduce one \textsc{Unix} function where we
+compose all the handlers that takes a function using the operations we have
+defined as an argument.
+
+\begin{lstlisting}[language=unison]
+unix : (() ->{e, BasicIO, Status} a) ->{e, IO, Exception} Nat
+unix prog = handle (handle !prog with basicIO) with exitHandler
+\end{lstlisting}
+
+We accept a function as an argument that needs both \texttt{Status} and
+\texttt{BasicIO} to be handled in order to be run. We then apply the handlers
+to the function and run it. We handle status last as this gives us \texttt{Nat}
+as a return code which the whole function can return. We can now run
+\texttt{unix helloworld} to get the following:
+
+\begin{lstlisting}[language=unison]
+  Hello, World!
+
+    0
+\end{lstlisting}
+
+We now get the 0 return code as the result of the computation, indicating it was successful.
+
 \section{Users and Environment}
 
 To introduce the concept of a user-space and users we can start by adding some
 hard coded users. For now, alice, bob and a root user: \texttt{unique type User
-= Alice | Bob | Root}. To add generic users we could replace the definition with 
-\texttt{unique type User = Text}, this would allow for the creation of new users.
+= Alice | Bob | Root}.
 
 Next we introduce the \texttt{Session} signature for operations involving
 users. The operation \texttt{su} or \emph{substitute user} is used to change
@@ -520,6 +561,43 @@ around ask.
 whoami: '{Session} Text
 whoami _ = ask ()
 \end{lstlisting}
+
+We now have all the tools to keep track of which user is logged in and display
+that information:
+
+\begin{tcolorbox}[colback=gray!10, colframe=black, arc=0pt, outer arc=0pt]
+  \section*{Program 2 --- Session Management}
+  
+  We can now compose the handlers we have written so far to switch between the
+  users and invoke \texttt{whoami}.
+
+  \begin{lstlisting}[language=unison]
+    session _ = su Alice
+                echo (!whoami)
+                echo "\n"
+                su Bob
+                echo (!whoami)
+                echo "\n"
+                su Root
+                echo(!whoami)
+                echo "\n"
+  \end{lstlisting}
+
+  The function \texttt{runsession} simply invokes \texttt{session} using our
+  \texttt{unix} function.
+
+  \begin{lstlisting}[language=unison]
+    runsession _ = unix session
+  \end{lstlisting}
+
+  \begin{lstlisting}[style=terminal]
+    alice
+    bob
+    root
+      
+      0
+\end{lstlisting}
+\end{tcolorbox}
 
 \subsection{The Apostrophe in Unison}
 
@@ -555,45 +633,18 @@ In this way the environment is the handler itself as it contains the
 information such as which user is logged in. The handler can be extended to
 have parameterised environment variables making it the complete environment.
 
-\begin{tcolorbox}[colback=gray!10, colframe=black, arc=0pt, outer arc=0pt]
-  \section*{Program 2 --- Session Management}
-  
-  We can now compose the handlers we have written so far to switch between the
-  users and invoke \texttt{whoami}.
+\subsection{Adding the Handler to the Unix Function}
 
-  \begin{lstlisting}[language=unison]
-    session _ = su Alice
-                echo (!whoami)
-                echo "\n"
-                su Bob
-                echo (!whoami)
-                echo "\n"
-                su Root
-                echo(!whoami)
-                echo "\n"
-  \end{lstlisting}
+Given the \texttt{unix} function represents the initial state of the system we
+choose the root user to be logged in by passing it as an argument to the
+handler as well as composing it with the other two.
 
-
-  \begin{lstlisting}[language=unison]
-    runsession _ = handle (handle (handle !session with env Root) with basicIO) with exitHandler
-  \end{lstlisting}
-
-  The \texttt{env} handler requires we give the user that is logged in
-  initially as an argument so we pass \texttt{Root}. Notice we also handle the
-  program with the \texttt{exitHandler} even though we do not invoke
-  \texttt{exit} in the program. This is because by handling code with no \texttt{exit}'s
-  with the \texttt{exitHandler} we will get the return case which will return 0
-  indicating the program was successful.
-
-  \begin{lstlisting}[style=terminal]
-    alice
-    bob
-    root
-      
-      0
+\begin{lstlisting}[language=unison]
+unix : '{e, Session, BasicIO, Status} a ->{e, IO, Exception} Nat
+unix prog = handle (handle (handle !prog with basicIO) with env Root) with exitHandler
 \end{lstlisting}
-\end{tcolorbox}
 
+We still leave the \texttt{exitHandler} on the outside to get the return code.
 
 \section{Nondeterminism}
 
@@ -613,12 +664,19 @@ Where normally only one branch would be executed, the two branches become our
 two processes. For example:
 
 \begin{lstlisting}[language=unison]
-...
 if fork then 
-  process1 ()
+  echo "Heads\n"
 else 
-  process2 ()
-...
+  echo "Tails\n"
+\end{lstlisting}
+
+By running that code with the \texttt{unix} function we get:
+
+\begin{lstlisting}[style=terminal]
+  Heads
+  Tails
+    
+    0
 \end{lstlisting}
 
 The handler for fork is also fairly simple:
@@ -679,7 +737,10 @@ unique type PState a e = Done a | Paused ('{e} PState a e)
 
 The type \texttt{a} is the return type of the process and the \texttt{e} is an
 effect variable that represents any effects that are needed to run the
-\texttt{PState}. We can now implement the handler for \texttt{interrupt}.
+\texttt{PState}. This can be thought of as analagous to the \emph{resumption
+monad} first introduced by Milner in 1975 \cite{MILNER1975157}, in that
+computation is split into either the result or another computation i.e. the
+resumption. We can now implement the handler for \texttt{interrupt}.
 
 \begin{lstlisting}[language=unison]
 reifyProcess : Request {Interrupt, e} a -> PState a e
@@ -693,7 +754,7 @@ In the case of an interrupt, the handler suspends the computation by making it
 an anonymous function with a unit type as it's first argument, and wrapping it
 in the paused datatype. This means we can run the \texttt{Paused} computations
 later by invoking that function we created. The return case simply wraps the
-value in the \texttt{Done} type.
+value in the \texttt{Done} type. 
 
 \begin{lstlisting}[language=unison]
 sched : [PState a {e, TimeSharing}] -> [a] ->{e} [a]
@@ -709,11 +770,202 @@ timeshare m = sched [Paused (_ -> handle !m with reifyProcess)] []
 
 \section{Serial File System}
 
+\subsection{State}
+
+To implement a file system we need to introduce a method of storing and
+retrieving state. The effect signature and operations introduced in section
+\ref{subsection:unison} provide the perfect interface as it takes a generic
+type \texttt{a} as an argument, we can introduce our own type to represent the
+filesystem and use it as an argument to \texttt{State}.
+
+\subsection{Definitions}
+
+\textbf{File System} ---
+Unlike a real \textsc{Unix} implementation we only implement the most basic
+operations on files, i.e. creation, deletion, reading and writing. Additionally
+we treat everything as a file, unlike \textsc{Unix} which has directories and
+special files, we only allow basic files. Thus the file tree is completely flat.
+
+\textbf{Serial} --- Each file can only be read from in order, additionally when
+we write to file, there are no write modes, we only append to the file.
+Semantically, different write modes can be achieved with the four basic
+operations and can be implemented by composing handlers. For example,
+overwriting a file is equivalent to deleting the existing file, creating a new
+one with the same name and writing the content to the new file.
+
+\subsection{Types}
+\label{sec:filesystemtypes}
+
+\begin{lstlisting}[language=unison]
+unique type DirectoryT = Directory (Text, Nat)
+unique type DataRegionT = DataRegion (Nat, Text)
+unique type INodeT = INode Nat Nat
+unique type IListT = IList (Nat, INodeT)
+unique type FileSystemT = FileSystem (List DirectoryT) (List IListT) (List DataRegionT) Nat Nat
+\end{lstlisting}
+
+\begin{itemize}
+  \item{\texttt{DirectoryT} --- A directory stores a file name with it's associated I-number}
+  \item{\texttt{INode} --- An I-Node stores the metadata for a file along with a pointer to a \texttt{DataRegion}}
+  \item{\texttt{IList} --- An I-List stores an I-number with an I-Node}
+  \item{\texttt{DataRegion} --- A DataRegion contains the actual file contents along with the pointer from the \texttt{INode}}
+\end{itemize}
+
+Finally, the \texttt{FileSystem} type collects the above types into lists along with two \texttt{Nat}'s to represent the next directory number and the next I-number.
+
+\subsection{Initial File System}
+
+Much like \texttt{Root} is the initial user, we introduce an initial file
+system by initialising the types in section \ref{sec:filesystemtypes}. We
+create the file \texttt{stdout} to represent the standard output file at
+I-number 0.
+
+\begin{lstlisting}[language=unison]
+initialINode : INodeT
+initialINode = INode 0 0
+
+initialDirectory : DirectoryT
+initialDirectory = (Directory ("stdout", 0))
+
+
+initialDataRegion : DataRegionT
+initialDataRegion = DataRegion (0, "")
+
+initialIList : IListT
+initialIList = IList (0, initialINode)
+
+initialFileSystem : FileSystemT
+initialFileSystem = FileSystem [initialDirectory] [initialIList] [initialDataRegion] 0 0
+\end{lstlisting}
+
+\subsection{Effect Types and Operations}
+
+Now we have the types and the state we can introduce the new effect signatures
+and operations. Firstly, \texttt{FileRW} which provides the \texttt{read} and
+\texttt{write}.
+
+\begin{lstlisting}[language=unison]
+unique ability FileRW
+  where
+      read: Nat -> Text
+      write: (Nat, Text) -> ()
+\end{lstlisting}
+
+\textbf{read} --- Read takes an I-number and returns the text at the corresponding data region.
+
+\textbf{write} -- Write takes an I-number and some text and appends the text to
+the end of the data region pointed to by the I-number.
+
+Next \texttt{FileCO} which is used for creating and opening files.
+\begin{lstlisting}[language=unison]
+unique ability FileCO
+  where
+      create: Text -> Nat
+      open: Text -> Nat
+\end{lstlisting}
+\texttt{FileCO} provides two operations, \texttt{create} and \texttt{open}.
+
+\textbf{create} --- Create takes a filename and returns a fresh I-number for
+the new file. If the provided filename exists it will overwrite the file to be
+blank again.
+
+\textbf{open} --- Open takes a filename and returns the I-number associated with it.
+
+Finally, we have \texttt{FileLU} which links and unlinks files.
+
+\begin{lstlisting}[language=unison]
+unique ability FileLU
+    where
+        link: (Text, Text) -> ()
+        unlink: Text -> ()
+\end{lstlisting}
+
+
+\begin{tcolorbox}[colback=gray!10, colframe=black, arc=0pt, outer arc=0pt]
+  \section*{Program 3 -- \texttt{mv}}
+
+  We can now use these effect operations to define a \texttt{mv} command. While
+  it can be used to move files between directories we have a flat file system
+  so in this case it's more of a rename command.
+
+  \begin{lstlisting}[language=unison]
+
+mv : Text -> Text ->{State FileSystemT, FileRW, FileCO} ()
+mv src dest = 
+    let file = read (open src)
+        _ = create src
+        write ((create dest), file)
+
+  \end{lstlisting}
+
+  First we use open to obtain the I-number of of the \texttt{INode} of the
+  source file, we can then use this I-number as an argument to \texttt{read} to
+  obtain the contents of the source file. Now that the contents of the source
+  file are stored in the \texttt{file} varaible, we can safely delete the
+  source file by calling \texttt{create} on it. If \texttt{create} is called on
+  an existing file it will delete that file by overwriting it. Since we no
+  longer need it's I-number we assign the return value of the \texttt{create}
+  to an empty variable. Finally, in one step we create the destination file
+  (overwriting it if it exists) and write the value of the variable
+  \texttt{file} to this new file using the I-number returned from
+  \texttt{create}.
+
+\end{tcolorbox}
+
 \section{Pipes}
 
 \section{Unix Fork}
 
 \chapter{Extensions}
+
+\section{Error Handling}
+
+Currently, whenever this implementation encounters an error or problem it will
+silently fail. To address this we will introduce different types of error
+through the \texttt{EType} type.
+
+\begin{lstlisting}[language=unison]
+unique type EType = PermissionDenied | FileNotFound | FileExists | UserExists | UnknownError
+\end{lstlisting}
+
+We provide common errors that might occur in \textsc{Unix} as well as a
+catch-all unknown error. Now is also a good time to provide a \texttt{toText}
+implementation for \texttt{EType} such that we can print them later. This is 
+simply pattern matching on each possible value of \texttt{EType} and returning a sensible string for the error message:
+
+\begin{lstlisting}[language=unison]
+toText: EType -> Text
+toText = cases  
+    PermissionDenied -> "Permission denied"
+    FileNotFound -> "File not found"
+    FileExists -> "File exists"
+    UserExists -> "User exists"
+    UnknownError -> "Unknown error"
+\end{lstlisting}
+
+Now we can introduce the \texttt{Error} signature which provides only one operation \texttt{throw}. Throw takes an argument of type \texttt{EType} and returns the unit.
+
+\begin{lstlisting}[language=unison]
+unique ability Error
+    where
+        throw: EType -> ()
+
+fail : Request {e, Error} a ->{e, IO, Exception, Status} Empty
+fail request =
+    match request with
+        { throw err -> resume } -> 
+            printLine (toText err)
+            exit 1
+        { result } -> exit 0
+
+warn : Request {e, Error} a ->{e, IO, Exception} a
+warn request =
+    match request with
+        { throw err -> resume } -> 
+            printLine (toText err)
+            handle resume () with warn
+        { result } -> result
+\end{lstlisting}
 
 \section{Environment Variables}
 
@@ -906,6 +1158,177 @@ userToText user =
 
 initialUserspace : [(User, [(Text, Text)])]
 initialUserspace = [(Username "root", [("USER", "root")] )]
+\end{lstlisting}
+
+\section{Permissions}
+
+\begin{lstlisting}[language=unison]
+unique type Permission = Read | Write | AddUser | Grant | Revoke | Execute
+
+all : [Permission]
+all = [Read, Write, AddUser, Grant, Revoke, Execute]
+
+unique ability Permit 
+    where 
+        grant: Text -> Permission -> ()
+        revoke: Text -> Permission -> ()
+
+checkPermission : User -> Permission -> [(Text, [Permission])] ->{e, Error, IO, Exception} ()
+checkPermission user required perms =
+    match perms with
+        [] -> throw PermissionDenied
+        (user', perms') +: rest ->
+            if userToText user == user' then
+                if allowed required perms' then
+                    ()
+                else
+                    throw PermissionDenied
+            else checkPermission user required rest
+
+permissions: User -> Request {e, Permit, Session, FileRW, FileLU, FileCO, Co} a ->{e, Session, FileRW, FileLU, FileCO, Co, Error, State [(Text, [Permission])], IO, Exception} a
+permissions user request = 
+    match request with
+        -- Permissions 
+        {grant user' perm -> resume} -> 
+            checkPermission user Grant !get
+            existingPerms = lookupPermission user' !get 
+            newPerms = perm +: existingPerms
+            put (modifyPermission user' newPerms !get)
+            handle resume () with permissions user
+        
+        {revoke user' perm -> resume} ->
+            checkPermission user Revoke !get
+            newPerms = removePermission perm (lookupPermission user' !get)
+            put (modifyPermission user' newPerms !get)
+            handle resume () with permissions user
+
+        -- Users
+        {ask var -> resume} -> 
+            checkPermission user Read !get
+            answer = ask var
+            handle resume answer with permissions user 
+        {su user' -> resume} -> 
+            su user'
+            handle resume () with permissions (Username user')
+        {adduser user' -> resume} -> 
+            checkPermission user AddUser !get
+            adduser user'
+            handle resume () with permissions user
+        {export var val -> resume} -> 
+            checkPermission user Write !get
+            export var val
+            handle resume () with permissions user
+
+        -- Files
+        {read i -> resume} -> 
+            checkPermission user Read !get
+            text = read i
+            handle resume text with permissions user
+
+        {write (i, text) -> resume} -> 
+            checkPermission user Write !get
+            write (i, text)
+            handle resume () with permissions user
+        
+        {link (src, dest) -> resume} -> 
+            checkPermission user Write !get
+            link (src, dest)
+            handle resume () with permissions user
+        
+        {unlink name -> resume} ->
+            checkPermission user Write !get
+            unlink name
+            handle resume () with permissions user
+
+        {create name -> resume} -> 
+            checkPermission user Write !get
+            ino = create name
+            handle resume ino with permissions user
+
+        {open name -> resume} ->
+            checkPermission user Read !get
+            ino = open name
+            handle resume ino with permissions user
+
+        {ufork -> resume} ->
+            checkPermission user Execute !get
+            let pid = ufork
+                handle resume pid with permissions user
+
+        {wait pid -> resume} ->
+            checkPermission user Execute !get
+            wait pid
+            handle resume () with permissions user
+
+        {uinterrupt -> resume} ->
+            checkPermission user Execute !get
+            uinterrupt
+            handle resume () with permissions user
+
+        {result} -> result
+
+lookupPermission: Text -> [(Text, [Permission])] -> [Permission]
+lookupPermission var perms =
+    match perms with
+        [] -> []
+        (var', perms') +: rest ->
+            if var == var' then perms'
+            else lookupPermission var rest
+
+modifyPermission: Text -> [Permission] -> [(Text, [Permission])] -> [(Text, [Permission])]
+modifyPermission var perms perms' =
+    match perms' with
+        [] -> [(var, perms)]
+        (var', perms'') +: rest ->
+            if var == var' then (var, perms) +: rest
+            else (var', perms'') +: modifyPermission var perms rest
+
+removePermission: Permission -> [Permission] -> [Permission]
+removePermission perm perms =
+    match perms with
+        [] -> []
+        perm' +: rest ->
+            if permEquals perm perm' then rest
+            else perm' +: removePermission perm rest
+
+allowed: Permission -> [Permission] -> Boolean
+allowed perm perms =
+    match perms with
+        [] -> false
+        perm' +: rest ->
+            if permEquals perm perm' then true
+            else allowed perm rest
+
+permEquals : Permission -> Permission -> Boolean
+permEquals perms1 perms2 = 
+    match perms1 with 
+        Read -> 
+            match perms2 with 
+                Read -> true
+                _ -> false
+        Write -> 
+            match perms2 with 
+                Write -> true
+                _ -> false
+        AddUser -> 
+            match perms2 with 
+                AddUser -> true
+                _ -> false
+        Grant ->
+            match perms2 with 
+                Grant -> true
+                _ -> false
+        Revoke ->
+            match perms2 with 
+                Revoke -> true
+                _ -> false
+        Execute ->
+            match perms2 with 
+                Execute -> true
+                _ -> false
+
+initialPermissions : [(Text, [Permission])]
+initialPermissions = [("root", all)]
 \end{lstlisting}
 
 \chapter{Evaluation}

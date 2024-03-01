@@ -7,11 +7,11 @@ unique ability BasicIO
     where
         echo: Text -> ()
 
-basicIO : Request {BasicIO} x ->{IO, Exception} ()
+basicIO : Request {BasicIO} a ->{IO, Exception} a
 basicIO result =
     match result with
         { echo text -> resume } -> putText stdOut text; handle resume () with basicIO
-        { result } -> ()
+        { result } -> result
 
 
 {-
@@ -19,13 +19,15 @@ basicIO result =
     =========
 -}
 
+unique type Empty = 
+
 -- The unix exit command that allows you to exit with error code
 unique ability Status
        where
-            exit: Nat -> ()
+            exit: Nat -> Empty
 
 -- handles the exit command which just returns an integer
-exitHandler : Request {g, Status} x -> Nat
+exitHandler : Request {g, Status} a -> Nat
 exitHandler request =
     match request with
           { result } -> 0
@@ -53,7 +55,7 @@ unique ability Session
 whoami: '{Session} Text
 whoami _ = ask "USER"
 
-env: User -> Request {Session} a ->{State [(User, [(Text, Text)])]} a
+env: User -> Request {Session} a ->{Error, State [(User, [(Text, Text)])]} a
 env user request = 
     match request with
         {result} -> result
@@ -67,7 +69,8 @@ env user request =
         {su user' -> resume} -> 
             if userExists (Username user') (get ()) then
                 handle resume () with env (Username user')
-            else 
+            else
+                throw NoSuchUser
                 handle resume () with env user   -- fail
 
         {export var val -> resume} -> 
@@ -78,18 +81,16 @@ env user request =
                 handle resume () with env user
 
         {adduser user' -> resume} ->
-            if userToText user == "root" then
-                let st = get ()
-                    newuser = (Username user')
-                    newvars = [("USER", user')]
-                    newenv = modifyEnvs newuser newvars st
-                    if (userExists newuser st) then
-                        put newenv
-                        handle resume () with env newuser
-                    else 
-                        handle resume () with env user  -- fail
-            else 
-                handle resume () with env user   -- fail
+            let st = get ()
+                newuser = (Username user')
+                newvars = [("USER", user')]
+                newenv = modifyEnvs newuser newvars st
+                if not (userExists newuser st) then
+                    put newenv
+                    handle resume () with env newuser
+                else 
+                    throw UserExists
+                    handle resume () with env user
 
 lookupEnvVar: Text -> [(Text, Text)] -> Text
 lookupEnvVar var env =
@@ -151,11 +152,11 @@ unique ability Interrupt
 
 unique type PState a e = Done a | Paused ('{e} PState a e)
 
-interruptWrite : Request {e, BasicIO} x ->{e, Interrupt, BasicIO} ()
+interruptWrite : Request {e, BasicIO} x ->{e, Co, BasicIO} ()
 interruptWrite result =
     match result with
         { echo text -> resume } -> 
-            interrupt
+            uinterrupt
             echo text 
             handle resume () with interruptWrite
         { result } -> ()
@@ -217,23 +218,15 @@ initialINode = INode 0 0
 initialDirectory : DirectoryT
 initialDirectory = (Directory ("stdout", 0))
 
-testDirectory : DirectoryT
-testDirectory = (Directory ("test.txt", 1))
 
 initialDataRegion : DataRegionT
 initialDataRegion = DataRegion (0, "")
 
-testDataRegion : DataRegionT
-testDataRegion = DataRegion (1, "Hello, World!\n")
-
 initialIList : IListT
 initialIList = IList (0, initialINode)
 
-testIList : IListT
-testIList = IList (1, initialINode)
-
 initialFileSystem : FileSystemT
-initialFileSystem = FileSystem [initialDirectory, testDirectory] [initialIList, testIList] [initialDataRegion, testDataRegion] 0 0
+initialFileSystem = FileSystem [initialDirectory] [initialIList] [initialDataRegion] 0 0
 
 lookupINode : Nat -> [IListT] -> Either INodeT ()
 lookupINode i ilists =
@@ -306,7 +299,7 @@ unique ability FileRW
                 read: Nat -> {FileRW } Text
                 write: (Nat, Text) -> {FileRW } ()
 
-fileRW : Request {FileRW} a ->{State FileSystemT} a
+fileRW : Request {FileRW} a ->{State FileSystemT, Error} a
 fileRW result =
     match result with
         { read i -> resume } ->
@@ -314,7 +307,9 @@ fileRW result =
                 text = fread i fs
                 match text with
                     Left text -> handle resume text with fileRW
-                    Right () -> handle resume "" with fileRW   -- make this fail
+                    Right () -> 
+                        throw FileNotFound
+                        handle resume "" with fileRW
         { write (i, text) -> resume } ->
             let fs = get ()
                 fs' = fwrite i text fs
@@ -332,24 +327,15 @@ fileEcho m = match m with
     { result } -> result
 
 
---echoWrite : Text ->{FileRW} ()
---echoWrite text = write (0, text)
---
---systemIO : Request {BasicIO} a ->{FileRW, State FileSystemT} a
---systemIO result =
---    match result with
---        { echo text -> resume } ->
---            handle write (0, text) with fileRW
---            handle resume () with systemIO
---        { result } -> result
-
-fopen : Text -> FileSystemT -> Nat
+fopen : Text -> FileSystemT ->{Error} Nat
 fopen name fs = 
     match fs with
         FileSystem directories ilists dataRegions dnext inext ->
             match lookupFName name directories with
                 Left i -> i
-                Right () -> inext
+                Right () -> 
+                    throw FileNotFound
+                    inext
 
 has : Text -> [DirectoryT] -> Boolean
 has name directories =
@@ -384,24 +370,25 @@ fcreate name fs =
 
 unique ability FileCO
     where
-        open: Text -> {FileCO } Nat
-        close: Nat -> {FileCO } ()
+        create: Text -> Nat
+        open: Text -> Nat
 
-fileCO : Request {FileCO} a ->{FileRW, State FileSystemT} a
+fileCO : Request {FileCO} a ->{FileRW, State FileSystemT, Error} a
 fileCO result =
     match result with
-        { open name -> resume } ->
+        { create name -> resume } ->
             let fs = get ()
                 (ino, fs') = fcreate name fs
                 put fs'
                 handle resume ino with fileCO
-        { close i -> resume } ->
+        { open name -> resume } ->
             let fs = get ()
+                ino = fopen name fs
                 put fs
-                handle resume () with fileCO
+                handle resume ino with fileCO
         { result } -> result
 
-flink: Text -> Text -> FileSystemT -> FileSystemT
+flink: Text -> Text -> FileSystemT ->{Error} FileSystemT
 flink src dest fs =
     match fs with
         FileSystem directories ilists dataRegions dnext inext ->
@@ -421,8 +408,12 @@ flink src dest fs =
                                                       inode' = INode ino loc'
                                                       ilists' = modifyINode ino inode' ilists
                                                       FileSystem directories' ilists' dataRegions dnext inext
-                                    Right () -> fs -- unreachable, we know the file exists
-                        Right () -> fs -- no such file src
+                                    Right () -> 
+                                        throw FileExists
+                                        fs -- unreachable, we know the file exists
+                        Right () -> 
+                            throw FileNotFound
+                            fs -- no such file src
 
 removeINode : Nat -> [IListT] -> [IListT]
 removeINode i ilists =
@@ -482,7 +473,7 @@ unique ability FileLU
             link: (Text, Text) -> {FileLU } ()
             unlink: Text -> {FileLU } ()
 
-fileLU : Request {FileLU} a ->{FileRW, State FileSystemT} a
+fileLU : Request {FileLU} a ->{FileRW, State FileSystemT, Error} a
 fileLU result =
     match result with
         { link (src, dest) -> resume } ->
@@ -532,20 +523,25 @@ unique ability Yield a
 
 unique ability Co 
     where 
-        ufork: () -> {Co } Nat
-        wait: Nat -> {Co } ()
-        uinterrupt: () -> {Co } ()
+        ufork: Nat
+        wait: Nat -> ()
+        uinterrupt: ()
 
 unique type Proc a e = Proc (Sstate a e ->{e} List (Nat, a))
 unique type Pstate a e = Ready (Proc a e) | Blocked Nat (Proc a e)
 unique type Sstate a e = {q: List (Nat, Pstate a e), done: List (Nat, a), pid: Nat, pnext: Nat}
 
 runNext: Sstate a e ->{e} List (Nat, a)
-runNext = cases Sstate q done pid pnext ->
-    match q with
-        [] -> done
-        (pid', Blocked pid'' resume) +: q' -> runNext (Sstate (q' lib.base.data.List.++ [(pid', Blocked pid'' resume)]) done pid pnext)
-        (pid', Ready resume) +: q' -> []
+runNext st =
+    let (Sstate q done pid pnext) = st
+        match q with
+            [] -> done
+            (pid', Blocked pid'' resume) +: q' -> 
+                runNext (Sstate (q' lib.base.data.List.++ [(pid', Blocked pid'' resume)]) done pid pnext)
+            (pid', Ready resume) +: q' -> 
+                let st' = (Sstate q' done pid' pnext)
+                    Proc (resume') = resume
+                    resume' st'
 
 scheduler: Sstate a e -> Request {Co, e} a ->{e} List (Nat, a)
 scheduler st request = match request with 
@@ -553,7 +549,7 @@ scheduler st request = match request with
         let (Sstate q done pid pnext) = st 
             done' = done lib.base.data.List.++ [(pid, result)]
             runNext (Sstate q done' pid pnext)
-    { ufork () -> resume } -> 
+    { ufork -> resume } -> 
         let resume' = (Proc (st -> handle resume 0 with scheduler st))
             (Sstate q done pid pnext) = st
             pid' = pnext
@@ -567,7 +563,7 @@ scheduler st request = match request with
                      q lib.base.data.List.++ [(pid, Blocked pid resume')]
                  else q lib.base.data.List.++ [(pid, Ready resume')]
             runNext (Sstate q' done pid pnext)
-    { uinterrupt () -> resume } -> 
+    { uinterrupt -> resume } -> 
         let resume' = (Proc (st -> handle resume () with scheduler st))
             (Sstate q done pid pnext) = st
             q' = q lib.base.data.List.++ [(pid, Ready resume')]
@@ -585,10 +581,10 @@ timeshare2 : '{g, Co} a ->{g} List (Nat, a)
 timeshare2 m = handle !m with scheduler (Sstate [] [] 1 2)
 
 init: '{e} a ->{e, Co} ()
-init main = let pid = ufork ()
+init main = let pid = ufork
                 if pid == 0 then
-                    _ = main ()
-                    ()
+                    let a = main ()
+                        ()
                 else
                     wait pid
 
@@ -597,40 +593,108 @@ init main = let pid = ufork ()
     ============
 -}
 
-unique type Permission = Read | Write | AddUser
+unique type Permission = Read | Write | AddUser | Grant | Revoke | Execute
 
+all : [Permission]
+all = [Read, Write, AddUser, Grant, Revoke, Execute]
 
-permissions: User -> Request {Session} a ->{Session, State [(Text, [Permission])]} a
+unique ability Permit 
+    where 
+        grant: Text -> Permission -> ()
+        revoke: Text -> Permission -> ()
+
+checkPermission : User -> Permission -> [(Text, [Permission])] ->{e, Error, IO, Exception} ()
+checkPermission user required perms =
+    match perms with
+        [] -> throw PermissionDenied
+        (user', perms') +: rest ->
+            if userToText user == user' then
+                if allowed required perms' then
+                    ()
+                else
+                    throw PermissionDenied
+            else checkPermission user required rest
+
+permissions: User -> Request {e, Permit, Session, FileRW, FileLU, FileCO, Co} a ->{e, Session, FileRW, FileLU, FileCO, Co, Error, State [(Text, [Permission])], IO, Exception} a
 permissions user request = 
     match request with
+        -- Permissions 
+        {grant user' perm -> resume} -> 
+            checkPermission user Grant !get
+            existingPerms = lookupPermission user' !get 
+            newPerms = perm +: existingPerms
+            put (modifyPermission user' newPerms !get)
+            handle resume () with permissions user
+        
+        {revoke user' perm -> resume} ->
+            checkPermission user Revoke !get
+            newPerms = removePermission perm (lookupPermission user' !get)
+            put (modifyPermission user' newPerms !get)
+            handle resume () with permissions user
+
+        -- Users
         {ask var -> resume} -> 
-            let st = get ()
-                perms = lookupPermission var st
-                if allowed Read perms then
-                    answer = ask var
-                    handle resume answer with permissions user 
-                else 
-                    handle resume "" with permissions user -- fail, permission denied
+            checkPermission user Read !get
+            answer = ask var
+            handle resume answer with permissions user 
         {su user' -> resume} -> 
+            su user'
             handle resume () with permissions (Username user')
         {adduser user' -> resume} -> 
-            let st = get ()
-                (Username username) = user
-                perms = lookupPermission username st
-                if allowed AddUser perms then
-                    adduser user'
-                    handle resume () with permissions user
-                else 
-                    handle resume () with permissions user -- fail, permission denied
+            checkPermission user AddUser !get
+            adduser user'
+            handle resume () with permissions user
         {export var val -> resume} -> 
-            let st = get ()
-                (Username username) = user
-                perms = lookupPermission username st
-                if allowed Write perms then
-                    export var val
-                    handle resume () with permissions user
-                else 
-                    handle resume () with permissions user -- fail, permission denied
+            checkPermission user Write !get
+            export var val
+            handle resume () with permissions user
+
+        -- Files
+        {read i -> resume} -> 
+            checkPermission user Read !get
+            text = read i
+            handle resume text with permissions user
+
+        {write (i, text) -> resume} -> 
+            checkPermission user Write !get
+            write (i, text)
+            handle resume () with permissions user
+        
+        {link (src, dest) -> resume} -> 
+            checkPermission user Write !get
+            link (src, dest)
+            handle resume () with permissions user
+        
+        {unlink name -> resume} ->
+            checkPermission user Write !get
+            unlink name
+            handle resume () with permissions user
+
+        {create name -> resume} -> 
+            checkPermission user Write !get
+            ino = create name
+            handle resume ino with permissions user
+
+        {open name -> resume} ->
+            checkPermission user Read !get
+            ino = open name
+            handle resume ino with permissions user
+
+        {ufork -> resume} ->
+            checkPermission user Execute !get
+            let pid = ufork
+                handle resume pid with permissions user
+
+        {wait pid -> resume} ->
+            checkPermission user Execute !get
+            wait pid
+            handle resume () with permissions user
+
+        {uinterrupt -> resume} ->
+            checkPermission user Execute !get
+            uinterrupt
+            handle resume () with permissions user
+
         {result} -> result
 
 lookupPermission: Text -> [(Text, [Permission])] -> [Permission]
@@ -640,6 +704,22 @@ lookupPermission var perms =
         (var', perms') +: rest ->
             if var == var' then perms'
             else lookupPermission var rest
+
+modifyPermission: Text -> [Permission] -> [(Text, [Permission])] -> [(Text, [Permission])]
+modifyPermission var perms perms' =
+    match perms' with
+        [] -> [(var, perms)]
+        (var', perms'') +: rest ->
+            if var == var' then (var, perms) +: rest
+            else (var', perms'') +: modifyPermission var perms rest
+
+removePermission: Permission -> [Permission] -> [Permission]
+removePermission perm perms =
+    match perms with
+        [] -> []
+        perm' +: rest ->
+            if permEquals perm perm' then rest
+            else perm' +: removePermission perm rest
 
 allowed: Permission -> [Permission] -> Boolean
 allowed perm perms =
@@ -664,81 +744,101 @@ permEquals perms1 perms2 =
             match perms2 with 
                 AddUser -> true
                 _ -> false
+        Grant ->
+            match perms2 with 
+                Grant -> true
+                _ -> false
+        Revoke ->
+            match perms2 with 
+                Revoke -> true
+                _ -> false
+        Execute ->
+            match perms2 with 
+                Execute -> true
+                _ -> false
+
+initialPermissions : [(Text, [Permission])]
+initialPermissions = [("root", all)]
 
 
---nondet2 : Request {TimeSharing} a -> [a]
---nondet2 request =
---    match request with
---        { fork -> resume } -> let pid = ufork ()
---                                if pid == 0 then
---                                    handle resume true with nondet2
---                                else
---                                    handle resume false with nondet2
---        { result } -> [result]
+{-
+    Errors
+-}
+
+unique type EType = PermissionDenied | FileNotFound | FileExists | UserExists | NoSuchUser | UnknownError
+
+toText: EType -> Text
+toText = cases  
+    PermissionDenied -> "Permission denied"
+    FileNotFound -> "File not found"
+    FileExists -> "File exists"
+    UserExists -> "User exists"
+    NoSuchUser -> "No such user"
+    UnknownError -> "Unknown error"
+
+unique ability Error
+    where
+        throw: EType -> ()
+
+fail : Request {e, Error} a ->{e, IO, Exception, Status} Empty
+fail request =
+    match request with
+        { throw err -> resume } -> 
+            printLine (toText err)
+            exit 1
+        { result } -> exit 0
+
+warn : Request {e, Error} a ->{e, IO, Exception} a
+warn request =
+    match request with
+        { throw err -> resume } -> 
+            printLine (toText err)
+            handle resume () with warn
+        { result } -> result
+
+{-
+    Retrofitting fork
+-}
+
+nondet2 : Request {TimeSharing} a -> [a]
+nondet2 request =
+    match request with
+        { fork -> resume } -> 
+            let pid = ufork
+                handle resume (pid != 0) with nondet2
+        { result } -> [result]
 
  {-
-    Util 
+     Unix
     ======
 -}
 
---unique ability Logging
---    where
---        log: a -> {Logging } ()
---
---logHandler : Request {Logging} a -> a
---logHandler request =
---    match request with
---        { log x -> resume } -> putText stdOut x; handle resume () with logHandler
---        { result } -> result
+unix : '{e, BasicIO, FileRW, FileCO, FileLU, Error, Session, Permit, Co} a ->{e, IO, Exception} [(Nat, Nat)]
+unix m = handle
+            (handle 
+                (handle
+                    (handle
+                        (handle
+                        (handle
+                            (handle 
+                                (handle 
+                                    (handle
+                                        (handle 
+                                            (handle
+                                                (handle 
+                                                    (handle
+                                                        init m
+                                                    with permissions (Username "root"))
+                                                with runState initialPermissions)
+                                            with env (Username "root")) 
+                                        with runState initialUserspace)
+                                    with fileCO)
+                                with fileLU)
+                        with fileRW)
+                    with runState initialFileSystem)
+                    with interruptWrite)
+                with basicIO)
+            with warn)
+        with exitHandler)
+    with scheduler (Sstate [] [] 1 2)
 
-{-
-    Programs for write up
-    ======================
--}
-
-greetAndExit _ = echo "Hello, World!\n"; exit 1; echo "Goodbye, World!\n"
-
-runGreetAndExit _ = handle (handle !greetAndExit with basicIO) with exitHandler
-
-backwardsIO : Request {BasicIO} x ->{IO, Exception} () 
-backwardsIO result = match result with
-    { echo text -> resume } ->  
-        handle resume () with basicIO 
-        putText stdOut text;
-    { result } -> ()
-
-multiHandlers _ = echo "Hello,"; echo " World!\n"
-
-runMultiHandlers _ = handle !multiHandlers with basicIO
-
-{-
-    Examples
-    =========
--}
-
-ioAndUsers : a ->{Session, Status, BasicIO} ()
-ioAndUsers _ = 
-    if whoami () == "root" then
-        echo "Logged in as root\n";
-        exit 0
-    else
-        echo "Permission denied\n";
-        exit 1
-    
---runIOandUsers _ = handle (handle (handle !ioAndUsers with sessionManager initialEnv) with exitHandler) with basicIO
-    
-ritchie _ = echo "UNIX is basically\n"; echo "a simple operating system\n"; echo "but you have to be a genius to understand the simplicity\n"
-hamlet _ = echo "To be, or not to be,\n"; echo "that is the question:\n"; echo "Wether 'tis nobler in the mind to suffer\n";
-
-forkAndIO : a ->{BasicIO, TimeSharing} ()
-forkAndIO _ = 
-    if fork then
-        !ritchie
-    else
-        !hamlet
-
-runForkAndIO _ = handle (handle !forkAndIO with basicIO) with nondet
-        
---testProgram7 _ = handle (get (handle (handle (echo "Hello, World!\n") with systemIO) with fileRW)) with runState initialFileSystem
-
--- testProgram8 _ = timeshare2 (_ -> (handle (handle (if ufork () == 0 then [!ritchie] else [!hamlet]) with interruptWrite) with basicIO))
