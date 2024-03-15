@@ -47,7 +47,7 @@
   %keyword3
   morekeywords = [2]{unique, structural},
   %keyword4
-  morekeywords = [3]{Status, BasicIO, User, Environment, Session, PState, Done, Paused, Interrupt, TimeSharing, Alice, Bob, Root, State, FileSystem, FileSystemT, FileRW, FileCO, FileLU, INode, INodeT, IList, IListT, DataRegion, DataRegionT, Directory, DirectoryT},
+  morekeywords = [3]{Status, BasicIO, User, Environment, Session, PState, Done, Paused, Interrupt, TimeSharing, Alice, Bob, Root, State, FileSystem, FileSystemT, FileRW, FileCO, FileLU, INode, INodeT, IList, IListT, DataRegion, DataRegionT, Directory, DirectoryT, Yield, Await},
   %keyword5
   morekeywords = [4]{Nat, Text, List, Tuple, (), Request, Boolean, IO, Exception},
   keywordstyle = [1]\color{bluegreen},
@@ -769,6 +769,7 @@ timeshare m = sched [Paused (_ -> handle !m with reifyProcess)] []
 \end{lstlisting}
 
 \section{Serial File System}
+\label{sec:filesystem}
 
 \subsection{State}
 
@@ -914,7 +915,244 @@ mv src dest =
 
 \section{Pipes}
 
+In \textsc{Unix}, a pipe is essentially syntactic sugar for connecting the input
+and output of two files. Given the simple nature of the file-system described
+in section \ref{sec:filesystem}, and the lack of true \texttt{stdout} and
+\texttt{stdin} files, pipes are represented as effect operations that are
+connected via handlers.
+
+\texttt{Yield} and \texttt{Await} are two new effect signatures for
+implementing pipes. \texttt{Yield} performs some computation and returns or
+`yields' a value, \texttt{Await} takes that value as an argument and then
+performs computation. Using the \texttt{yield} operation can be thought of as
+writing to \texttt{stdout} and \texttt{await} is reading from \texttt{stdin}.
+
+\begin{lstlisting}[language=unison]
+unique ability Await a
+    where
+        await: () -> {Await } a
+
+unique ability Yield a
+    where
+        yield: a -> {Yield } ()
+\end{lstlisting}
+
+\subsection{Cat}
+In \textsc{Unix}, \texttt{cat} prints the contents of a file to
+\texttt{stdout}. In this case, pipes can be used, by yielding the file a
+character at a time other utilities can simply await input.  
+
+\begin{lstlisting}[language=unison]
+-- TODO check this works 
+cat: Text -> {FileRW, FileCO, Yield Text, e} -> ()
+cat fname = 
+  let ino = open fname
+      iter (ch -> yield ch) (read ino)
+      yield '\0'
+
+\end{lstlisting}
+
+\subsection{Grep}
+
+The \texttt{Unix} utility grep is used for searching for strings within a body
+of text. At it's most simple  form it returns true if it finds an instance of
+the target string in the source. Grep is often used as a consumer of a pipe
+which is why it will be implemented using await.
+
+\begin{lstlisting}[language=unison]
+-- TODO check this works
+grep: Text ->{Await Text} Boolean 
+grep target = 
+  grepRec target buffer n length =
+    if n < length then
+      grepRec target (buffer ++ !await) n+1 length
+    else 
+      if buffer == target then
+        True
+      else 
+        if buffer == "" then
+          False
+        else 
+          grepRec target ((drop 1 buffer) ++ !await) n length
+  grepRec target "" 0 (length target)
+
+\end{lstlisting}
+
+\begin{tcolorbox}[colback=gray!10, colframe=black, arc=0pt, outer arc=0pt]
+  \section*{Program 4 -- Searching in a set of files}
+  
+  Given a list of filenames we want to return the name of each file that
+  contains a particular string. We can compose \texttt{cat} and \texttt{grep}
+  to achieve this.
+
+  \begin{lstlisting}[language=unison]
+  
+  searchFiles: Text -> [Text] ->{FileRW, FileCO, Await Text, Yield Text, e} [Text]
+  searchFiles target fnames = match fnames with 
+    [] -> []
+    fname +: rest -> 
+      if pipe (cat fname) (grep target) then
+        fname ++ searchFiles target rest
+      else
+        searchFiles target rest
+
+  \end{lstlisting}
+\end{tcolorbox}
+
+\subsection{Pipe and Copipe Handler}
+
+The handlers can now be defined:
+
+\begin{lstlisting}[language=unison]
+pipe : ('{Yield b, e} a) -> ('{Await b, e} a) ->{e} a
+pipe p c = handle c () with
+                (cases
+                    { x } -> x
+                    { await () -> resume } -> copipe (resume) p)
+
+copipe : (b -> {Await b, e} a) -> ('{Yield b, e} a) ->{e} a
+copipe c p = handle p () with
+                (cases
+                    { x } -> x
+                    { yield y -> resume } -> pipe resume '(c y) )
+\end{lstlisting}
+
+Each handler takes two arguments: a producer, \texttt{p} and a consumer,
+\texttt{c}. Both arguments are suspended computations that produce a value of
+type \texttt{a}. A producer may invoke \texttt{Yield} and a consumer may invoke
+\texttt{Await}.
+
+The \texttt{pipe} handler immediately handles the consumer and defines an
+inline function to handle it with. If the consumer invokes an await it is
+handled with the \texttt{copipe} with the producer and the resumption of the
+consumer. This means that the consumer process is blocked until the producer
+can produce it's value.
+
+Similarly, the \texttt{copipe} handler runs the producer until it yields a
+value, that value is then given to the suspended consumer and given back to the
+pipe handler.
+
 \section{Unix Fork}
+
+\subsection{Process ID's}
+
+It would be useful to be able to keep track of multiple processes.
+\textsc{Unix} uses process ID's or \texttt{pid}'s for this purpose. Whenever a
+program forks, fork should return a process ID of the newly created process. 
+This then allows programs to `wait' for a particular process to finish.
+
+\subsection{Effect Signature}
+
+The updated effect signature now includes \texttt{wait} which will wait for a
+process with the specified \texttt{pid}. Fork now returns the \texttt{pid} of
+the newly created process. The type of interrupt remains unchanged. Fork and
+interrupt are renamed to \texttt{ufork} and \texttt{uinterrupt} to avoid having
+to overwrite the previous definition.
+
+\begin{lstlisting}[language=unison]
+unique ability Co 
+    where 
+        ufork: Nat
+        wait: Nat -> ()
+        uinterrupt: ()
+\end{lstlisting}
+
+\subsection{Types}
+
+Now that the program must also handle \texttt{pid}'s there must be more state
+that is capable of storing this information. \texttt{Done} and \texttt{Paused}
+become \texttt{Ready} and \texttt{Blocked} as now, a process is either ready to
+run, or blocked by another process. Instead of returning just a return value of
+\texttt{a} it must now also return which process returned that value, hence the
+\texttt{List (Nat, a)} type.
+
+\begin{lstlisting}[language=unison]
+unique type Proc a e = Proc (Sstate a e ->{e} List (Nat, a))
+unique type Pstate a e = Ready (Proc a e) | Blocked Nat (Proc a e)
+unique type Sstate a e = {q: List (Nat, Pstate a e), done: List (Nat, a), pid: Nat, pnext: Nat}
+\end{lstlisting}
+
+Finally, there is the \texttt{Sstate} type which has the queue of process to be
+run, the list of process that are finished or done and the current and next
+process ID's.
+
+\begin{tcolorbox}[colback=gray!10, colframe=black, arc=0pt, outer arc=0pt]
+  \section*{Program 5 -- Init process}
+
+  When \textsc{Unix} is initialised it forks to create a new process to run all
+  programs on. The original process is then the parent process of every process
+  created by the operating system.
+
+  \begin{lstlisting}[language=unison]
+init: '{e} a ->{e, Co} ()
+init main = let pid = ufork
+                if pid == 0 then
+                    let a = main ()
+                        ()
+                else
+                    wait pid
+  \end{lstlisting}
+
+  We accept one argument \texttt{main} which is the function to be ran as the
+  first program. If we are on the ancestor process ($pid = 0$) then we capture
+  the return value of main while running it and return the unit type. If we are
+  on any other process we wait for the main process.
+\end{tcolorbox}
+
+\subsection{Running a process}
+
+The \texttt{runNext} function takes an argument of type \texttt{Sstate} and
+runs it to produce the list of pid's and return values.
+
+\begin{lstlisting}[language=unison]
+runNext: Sstate a e ->{e} List (Nat, a)
+runNext st =
+    let (Sstate q done pid pnext) = st
+        match q with
+            [] -> done
+            (pid', Blocked pid'' resume) +: q' -> 
+                runNext (Sstate (q' lib.base.data.List.++ [(pid', Blocked pid'' resume)]) done pid pnext)
+            (pid', Ready resume) +: q' -> 
+                let st' = (Sstate q' done pid' pnext)
+                    Proc (resume') = resume
+                    resume' st'
+\end{lstlisting}
+
+It unpacks the \texttt{Sstate} and matches on the queue. When it encounters a
+blocked process, it sends it to the back of the queue and recursively calls the
+function on the new queue. When it encounters a process that is ready to be run
+it unpacks the \texttt{Proc} type and gives the \texttt{Sstate} as an argument
+to the resumption, thus creating the list.
+
+\subsection{The handler}
+
+\begin{lstlisting}[language=unison]
+scheduler: Sstate a e -> Request {Co, e} a ->{e} List (Nat, a)
+scheduler st request = match request with 
+    { result } -> 
+        let (Sstate q done pid pnext) = st 
+            done' = done lib.base.data.List.++ [(pid, result)]
+            runNext (Sstate q done' pid pnext)
+    { ufork -> resume } -> 
+        let resume' = (Proc (st -> handle resume 0 with scheduler st))
+            (Sstate q done pid pnext) = st
+            pid' = pnext
+            pnext' = pnext + 1
+            q' = q lib.base.data.List.++ [(pid', Ready resume')]
+            handle resume pid' with scheduler (Sstate q' done pid pnext')
+    { wait pid -> resume } -> 
+        let resume' = (Proc (st -> handle resume () with scheduler st))
+            (Sstate q done pid pnext) = st
+            q' = if processExists pid q then
+                     q lib.base.data.List.++ [(pid, Blocked pid resume')]
+                 else q lib.base.data.List.++ [(pid, Ready resume')]
+            runNext (Sstate q' done pid pnext)
+    { uinterrupt -> resume } -> 
+        let resume' = (Proc (st -> handle resume () with scheduler st))
+            (Sstate q done pid pnext) = st
+            q' = q lib.base.data.List.++ [(pid, Ready resume')]
+            runNext (Sstate q' done pid pnext)
+\end{lstlisting}
 
 \chapter{Extensions}
 
@@ -943,7 +1181,9 @@ toText = cases
     UnknownError -> "Unknown error"
 \end{lstlisting}
 
-Now we can introduce the \texttt{Error} signature which provides only one operation \texttt{throw}. Throw takes an argument of type \texttt{EType} and returns the unit.
+Now we can introduce the \texttt{Error} signature which provides only one
+operation \texttt{throw}. Throw takes an argument of type \texttt{EType} and
+returns the unit.
 
 \begin{lstlisting}[language=unison]
 unique ability Error

@@ -500,21 +500,21 @@ unique ability Await a
     where
         await: () -> {Await } a
 
-unique ability Yield a
+unique ability Yield b
     where
-        yield: a -> {Yield } ()
+        yield: b -> {Yield } ()
 
---pipe : '{Yield b, e} a -> '{Await b, e} a ->{e} a
+--pipe : ('{Yield b, e} a) -> ('{Await b, e} a) ->{e} a
 --pipe p c = handle c () with
 --                (cases
 --                    { x } -> x
---                    { await () -> resume } -> copipe resume p)
+--                    { await () -> resume } -> copipe (resume) p)
 --
---copipe : b -> {Await b, e} a -> '{yield b, e} a ->{e} a
---copipe p c = handle p () with
+--copipe : (b -> {Await b, e} a) -> ('{Yield b, e} a) ->{e} a
+--copipe c p = handle p () with
 --                (cases
 --                    { x } -> x
---                    { yield y -> resume } -> pipe ('resume) c y )
+--                    { yield y -> resume } -> pipe resume '(c y) )
 
 {-
     Process Syncronization
@@ -542,6 +542,116 @@ runNext st =
                 let st' = (Sstate q' done pid' pnext)
                     Proc (resume') = resume
                     resume' st'
+
+modifyQueue: Nat -> [(Nat, Pstate a e)] -> [(Nat, Pstate a e)]
+modifyQueue pid q =
+    match q with
+        [] -> []
+        (pid', pstate) +: rest ->
+            if pid == pid' then rest
+            else (pid', pstate) +: modifyQueue pid rest
+
+lookupNice: Nat -> [(Nat, Nat)] -> Nat 
+lookupNice pid prio =
+    match prio with 
+        [] -> 0 -- maybe warn here
+        (pid', nice) +: rest ->
+            if pid' == pid then
+                nice 
+            else 
+                lookupNice pid rest 
+
+modifyNice: Nat -> Nat -> [(Nat, Nat)] -> [(Nat, Nat)]
+modifyNice pid nice prio =
+    match prio with
+        [] -> [(pid, nice)]
+        (pid', nice') +: rest ->
+            if pid' == pid then
+                (pid, nice) +: rest
+            else 
+                (pid', nice') +: modifyNice pid nice rest
+
+highestNiceInQueue: [(Nat, Nat)] -> [(Nat, Pstate a e)] -> Either (Nat, Pstate a e) ()
+highestNiceInQueue niceValues q = 
+    match q with 
+        [] -> Right ()
+        (pid, Blocked pid' resume) +: rest -> 
+            highestNiceInQueue niceValues rest
+        (pid, Ready resume) +: rest ->
+            let nice = lookupNice pid niceValues
+                match highestNiceInQueue niceValues rest with 
+                    Left (pid', pstate) -> 
+                        let nice' = lookupNice pid' niceValues
+                            if nice > nice' then 
+                                Left (pid, Ready resume)
+                            else 
+                                Left (pid', pstate)
+                    Right () -> 
+                        Left (pid, Ready resume)
+
+runNextNice: Sstate a e -> [(Nat, Nat)] ->{e} List (Nat, a)
+runNextNice st niceValues = 
+    let (Sstate q done pid pnext) = st
+        match q with
+            [] -> done
+            (pid', Blocked pid'' resume) +: q' -> 
+                runNextNice (Sstate (q' lib.base.data.List.++ [(pid', Blocked pid'' resume)]) done pid pnext) niceValues
+            (pid', Ready resume) +: q' ->
+                match highestNiceInQueue niceValues q with
+                    Left (pid', Ready resume) -> 
+                        let st' = (Sstate q' done pid' pnext)
+                            Proc (resume') = resume
+                            resume' st'
+                    Left (pid', Blocked pid'' resume) ->             -- unreachable
+                        let st' = (Sstate q' done pid' pnext)
+                            Proc (resume') = resume
+                            resume' st'
+                    Right () -> 
+                        let st' = (Sstate q' done pid' pnext)
+                            Proc (resume') = resume
+                            resume' st'
+
+maxNice : Nat
+maxNice = 20
+
+schedAging: Sstate a e -> Request {Co, e} a ->{e, State [(Nat, Nat)]} List (Nat, a)
+schedAging st request = match request with
+    {result} ->
+        let (Sstate q done pid pnext) = st
+            done' = done lib.base.data.List.++ [(pid, result)]
+            runNextNice (Sstate q done' pid pnext) !get
+    { ufork -> resume } ->
+        let resume' = (Proc (st -> handle resume 0 with scheduler st))
+            (Sstate q done pid pnext) = st
+            nice = lookupNice pid !get
+
+            -- simple heuristic to avoid starvation, switch back to round robin if we reach highest nice
+            if nice+1 >= maxNice then
+                let q' = q lib.base.data.List.++ [(pid, Ready resume')]
+                    pid' = pnext
+                    pnext' = pnext + 1
+                    handle resume pid' with scheduler (Sstate q' done pid pnext')
+            else
+                put (modifyNice pnext nice !get)
+                put (modifyNice pnext (nice + 1) !get)
+
+                pid' = pnext
+                pnext' = pnext + 1
+
+                q' = q lib.base.data.List.++ [(pid', Ready resume')]
+                handle resume pid' with schedAging (Sstate q' done pid pnext)
+    { wait pid -> resume } ->
+        let resume' = (Proc (st -> handle resume () with scheduler st))
+            (Sstate q done pid pnext) = st
+            q' = if processExists pid q then
+                     q lib.base.data.List.++ [(pid, Blocked pid resume')]
+                 else q lib.base.data.List.++ [(pid, Ready resume')]
+            runNextNice (Sstate q' done pid pnext) !get
+    { uinterrupt -> resume } ->
+        let resume' = (Proc (st -> handle resume () with scheduler st))
+            (Sstate q done pid pnext) = st
+            q' = q lib.base.data.List.++ [(pid, Ready resume')]
+            runNextNice (Sstate q' done pid pnext) !get
 
 scheduler: Sstate a e -> Request {Co, e} a ->{e} List (Nat, a)
 scheduler st request = match request with 
