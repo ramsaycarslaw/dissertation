@@ -49,7 +49,7 @@ unique ability Session
     where
         su: Text -> ()
         ask: Text -> Text
-        export: Text -> Text -> ()
+        setvar: Text -> Text -> ()
         adduser: Text -> ()
 
 whoami: '{Session} Text
@@ -73,7 +73,7 @@ env user request =
                 throw NoSuchUser
                 handle resume () with env user   -- fail
 
-        {export var val -> resume} -> 
+        {setvar var val -> resume} -> 
             let st = get ()
                 envs = lookupEnvs user st
                 envs' = modifyEnvVar var val envs
@@ -498,23 +498,23 @@ fileIO m = handle (handle (handle !m with fileRW) with fileCO) with fileLU
 
 unique ability Await a
     where
-        await: () -> {Await } a
+        await: () -> a
 
 unique ability Yield b
     where
-        yield: b -> {Yield } ()
+        yield: b -> ()
 
---pipe : ('{Yield b, e} a) -> ('{Await b, e} a) ->{e} a
---pipe p c = handle c () with
---                (cases
---                    { x } -> x
---                    { await () -> resume } -> copipe (resume) p)
---
---copipe : (b -> {Await b, e} a) -> ('{Yield b, e} a) ->{e} a
---copipe c p = handle p () with
---                (cases
---                    { x } -> x
---                    { yield y -> resume } -> pipe resume '(c y) )
+pipe : ('{Yield b, e} a) -> ('{Await b, e} a) ->{e} a
+pipe p c = handle c () with
+                (cases
+                    { x } -> x
+                    { await () -> resume } -> copipe (resume) p)
+
+copipe : (b -> {Await b, e} a) -> ('{Yield b, e} a) ->{e} a
+copipe c p = handle p () with
+                (cases
+                    { x } -> x
+                    { yield y -> resume } -> pipe resume '(c y) )
 
 {-
     Process Syncronization
@@ -526,6 +526,8 @@ unique ability Co
         ufork: Nat
         wait: Nat -> ()
         uinterrupt: ()
+        nice: Nat -> Int
+        renice: Nat -> Int -> ()
 
 unique type Proc a e = Proc (Sstate a e ->{e} List (Nat, a))
 unique type Pstate a e = Ready (Proc a e) | Blocked Nat (Proc a e)
@@ -551,45 +553,45 @@ modifyQueue pid q =
             if pid == pid' then rest
             else (pid', pstate) +: modifyQueue pid rest
 
-lookupNice: Nat -> [(Nat, Nat)] -> Nat 
+lookupNice: Nat -> [(Nat, Int)] -> Int
 lookupNice pid prio =
     match prio with 
-        [] -> 0 -- maybe warn here
-        (pid', nice) +: rest ->
+        [] -> -1 -- maybe warn here
+        (pid', renice) +: rest ->
             if pid' == pid then
-                nice 
+                renice 
             else 
                 lookupNice pid rest 
 
-modifyNice: Nat -> Nat -> [(Nat, Nat)] -> [(Nat, Nat)]
-modifyNice pid nice prio =
+modifyNice: Nat -> Int -> [(Nat, Int)] -> [(Nat, Int)]
+modifyNice pid renice prio =
     match prio with
-        [] -> [(pid, nice)]
-        (pid', nice') +: rest ->
+        [] -> [(pid, renice)]
+        (pid', renice') +: rest ->
             if pid' == pid then
-                (pid, nice) +: rest
+                (pid, renice) +: rest
             else 
-                (pid', nice') +: modifyNice pid nice rest
+                (pid', renice') +: modifyNice pid renice rest
 
-highestNiceInQueue: [(Nat, Nat)] -> [(Nat, Pstate a e)] -> Either (Nat, Pstate a e) ()
-highestNiceInQueue niceValues q = 
+lowestNiceInQueue: [(Nat, Int)] -> [(Nat, Pstate a e)] -> Either (Nat, Pstate a e) ()
+lowestNiceInQueue niceValues q = 
     match q with 
         [] -> Right ()
         (pid, Blocked pid' resume) +: rest -> 
-            highestNiceInQueue niceValues rest
+            lowestNiceInQueue niceValues rest
         (pid, Ready resume) +: rest ->
-            let nice = lookupNice pid niceValues
-                match highestNiceInQueue niceValues rest with 
+            let nextnice = lookupNice pid niceValues
+                match lowestNiceInQueue niceValues rest with 
                     Left (pid', pstate) -> 
-                        let nice' = lookupNice pid' niceValues
-                            if nice > nice' then 
+                        let nextnice' = lookupNice pid' niceValues
+                            if nextnice < nextnice' then 
                                 Left (pid, Ready resume)
                             else 
                                 Left (pid', pstate)
                     Right () -> 
                         Left (pid, Ready resume)
 
-runNextNice: Sstate a e -> [(Nat, Nat)] ->{e} List (Nat, a)
+runNextNice: Sstate a e -> [(Nat, Int)] ->{e} List (Nat, a)
 runNextNice st niceValues = 
     let (Sstate q done pid pnext) = st
         match q with
@@ -597,7 +599,7 @@ runNextNice st niceValues =
             (pid', Blocked pid'' resume) +: q' -> 
                 runNextNice (Sstate (q' lib.base.data.List.++ [(pid', Blocked pid'' resume)]) done pid pnext) niceValues
             (pid', Ready resume) +: q' ->
-                match highestNiceInQueue niceValues q with
+                match lowestNiceInQueue niceValues q with
                     Left (pid', Ready resume) -> 
                         let st' = (Sstate q' done pid' pnext)
                             Proc (resume') = resume
@@ -611,10 +613,10 @@ runNextNice st niceValues =
                             Proc (resume') = resume
                             resume' st'
 
-maxNice : Nat
-maxNice = 20
+minNice : Int
+minNice = -20
 
-schedAging: Sstate a e -> Request {Co, e} a ->{e, State [(Nat, Nat)]} List (Nat, a)
+schedAging: Sstate a e -> Request {Co, e} a ->{e, State [(Nat, Int)]} List (Nat, a)
 schedAging st request = match request with
     {result} ->
         let (Sstate q done pid pnext) = st
@@ -623,23 +625,35 @@ schedAging st request = match request with
     { ufork -> resume } ->
         let resume' = (Proc (st -> handle resume 0 with scheduler st))
             (Sstate q done pid pnext) = st
-            nice = lookupNice pid !get
+            nicevalue = lookupNice pid !get
 
-            -- simple heuristic to avoid starvation, switch back to round robin if we reach highest nice
-            if nice+1 >= maxNice then
+            -- simple heuristic to avoid starvation, switch back to round robin if we reach min nice
+            if nicevalue - +1 <= minNice then
                 let q' = q lib.base.data.List.++ [(pid, Ready resume')]
                     pid' = pnext
                     pnext' = pnext + 1
                     handle resume pid' with scheduler (Sstate q' done pid pnext')
             else
-                put (modifyNice pnext nice !get)
-                put (modifyNice pnext (nice + 1) !get)
+                put (modifyNice pnext nicevalue !get)
+                put (modifyNice pnext (nicevalue - +1) !get)
 
                 pid' = pnext
                 pnext' = pnext + 1
 
                 q' = q lib.base.data.List.++ [(pid', Ready resume')]
                 handle resume pid' with schedAging (Sstate q' done pid pnext)
+
+    { nice pid -> resume } ->
+        let (Sstate q done pid pnext) = st
+            nicevalue = lookupNice pid !get
+            handle resume nicevalue with schedAging st
+
+    { renice pid newNice -> resume} -> 
+        let resume' = (Proc (st -> handle resume () with scheduler st))
+            (Sstate q done pid pnext) = st
+            put (modifyNice pid newNice !get)
+            runNextNice (Sstate q done pid pnext) !get
+    
     { wait pid -> resume } ->
         let resume' = (Proc (st -> handle resume () with scheduler st))
             (Sstate q done pid pnext) = st
@@ -673,6 +687,13 @@ scheduler st request = match request with
                      q lib.base.data.List.++ [(pid, Blocked pid resume')]
                  else q lib.base.data.List.++ [(pid, Ready resume')]
             runNext (Sstate q' done pid pnext)
+
+    { nice pid -> resume } ->
+        handle resume +0 with scheduler st
+
+    {renice pid newNice -> resume} -> 
+        handle resume () with scheduler st
+        
     { uinterrupt -> resume } -> 
         let resume' = (Proc (st -> handle resume () with scheduler st))
             (Sstate q done pid pnext) = st
@@ -754,9 +775,9 @@ permissions user request =
             checkPermission user AddUser !get
             adduser user'
             handle resume () with permissions user
-        {export var val -> resume} -> 
+        {setvar var val -> resume} -> 
             checkPermission user Write !get
-            export var val
+            setvar var val
             handle resume () with permissions user
 
         -- Files
@@ -794,6 +815,16 @@ permissions user request =
             checkPermission user Execute !get
             let pid = ufork
                 handle resume pid with permissions user
+
+        {nice pid -> resume} ->
+            checkPermission user Execute !get
+            let nicevalue = nice pid
+                handle resume nicevalue with permissions user
+
+        {renice pid newnice -> resume} ->
+            checkPermission user Execute !get
+            renice pid newnice
+            handle resume () with permissions user
 
         {wait pid -> resume} ->
             checkPermission user Execute !get

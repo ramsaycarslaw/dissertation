@@ -1,0 +1,59 @@
+-- Environemnt 
+
+adduser': [User] -> User -> [User]
+adduser' store user = 
+    store :+ user
+
+su' : [User] -> User -> [User]
+su' store user = 
+    match store with
+        [] -> store
+        (u +: rest) -> 
+            let uname = userToText u
+                username = userToText user
+                if uname == username then 
+                    u +: rest 
+                else 
+                    store
+
+ask': [User] -> Text
+ask' store = 
+    match store with 
+        [] -> ""
+        (u +: rest) -> 
+            let uname = userToText u
+                uname
+
+timings _ = 
+    Timer.start "conventional"
+    internal n env = 
+        if n == 0 then 
+            []
+        else 
+            let uname = Nat.toText (!randomNat)
+                addeduser = adduser' [] (Username uname)
+                newEnv = su' addeduser (Username uname)
+                internal (n-1) newEnv
+    Timer.stop "conventional"
+
+report _ = printReport timings
+
+timings' _ = 
+    Timer.start "effectful"
+    internal n = 
+        if n == 0 then 
+            ()
+        else 
+            let uname = Nat.toText (!randomNat)
+                adduser uname 
+                su uname
+                internal (n-1)
+
+    internal 1000
+    Timer.stop "effectful"
+    
+
+timingsHandler' _ = handle (handle (handle !timings' with env (Username "root")) with runState initialUserspace) with warn
+
+report' _ = printReport timingsHandler'
+

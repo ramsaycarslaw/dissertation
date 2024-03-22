@@ -9,6 +9,7 @@
 \usepackage{xcolor}
 \usepackage{tcolorbox}
 \usepackage{subcaption}
+\usepackage{booktabs}
 
 \definecolor{codegreen}{rgb}{0,0.6,0}
 \definecolor{codegray}{rgb}{0.5,0.5,0.5}
@@ -111,7 +112,78 @@ from the Informatics Research Ethics committee.
 
 \end{preliminary}
 
+\part{Project}
+
 \chapter{Introduction}
+
+\section{Motivation}
+
+Effect handlers \cite{plotkin2002computational} are widely becoming adopted in
+functional programming languages \cite{DBLP:journals/corr/Leijen14} and even
+imperative languages as libraries. They provide a unique and expressive syntax
+for handling side effects and control flow. This has led to a new paradigm of
+programming known as \emph{effect-oriented programming}
+\cite{pretnar2015introduction}. Effect-oriented programming leverages the way
+effect handlers can be composed to create modular programs that can be easily
+extended and maintained. The aim of this project is to demonstrate that complex
+programs, such as \emph{Unix} \cite{ritchie1978unix} can be implemented in this
+effect oriented style. The project details techniques and observations on
+effect oriented programming through the context of implementing a Unix-like
+operating system.
+
+We choose to implement Unix as it is a well known and widely used operating
+system. Choosing an operating system also introduces more advanced control flow
+and concepts through time sharing, filesystems and pipes. The primary
+implementation language of this project is \emph{Unison}, a functional
+programming language with first class support for effect handlers.
+
+\section{Aims}
+
+While the primary goal is to implement a Unix-like operating system in Unison,
+the project also aims to compare the effect oriented programming style to
+traditional programming styles. The project will also aim to provide a
+commentary on the performance of effect handlers in Unison. The goal is not to
+write a real operating system but to demonstrate that effect handlers can be
+the right choice for complex programming tasks. 
+
+\section{Objectives}
+
+The objectives of the project are as follows:
+
+\begin{itemize}
+  \item{Provide a background and context for effect oriented programming and it's intersection with operating systems}
+  \item{Implement a Unix-like operating system in Unison based on the work of Hillerstr\"{o}m \cite{hillerstrom2022foundations}}
+  \item{Extend this initial version with more interesting uses of effect handlers and more advanced operating system features}
+  \item{Provide a commentary on the performance of effect handlers in Unison}
+  \item{Compare the effect oriented programming style to traditional programming styles}
+  \item{Provide a reflection on the project and it's outcomes}
+\end{itemize}
+
+\section{Outline}
+
+Chapter 2 introduces the literature and background of effect handlers and
+provides a simple example in Unison. We then discuss the state of effect
+oriented programming and some of the pros and cons of various effect
+implementations. Chapter 2 also describes some of the other research that has
+been done in this area.
+
+Chapter 3 details the Unison implementation of a Hillerstr\"{o}m's toy Unix
+operating system. It provides a basic implementation of a subset of Unix
+features including: users, a filesystem , timesharing and pipes. This chapter
+also provides examples on using the implemented features.
+
+Chapter 4 outlines features implemented beyond Hillerstr\"{o}m's original
+implementation. This includes a more advanced scheduler, errors and exceptions
+as well as an overhauled userspace complete with environment variables.
+
+Chapter 5 provides a commentary on the performance of effect handlers in Unison
+and details some of the challenges faced when implementing Unix in this way.
+It also compares the effect oriented programming style to traditional
+programming styles in areas such as modularity, extensibility and performance.
+
+Chapter 6 provides a reflection on the project and it's outcomes. It details
+some of the challenges faced and the lessons learned. It also provides some
+ideas for future work in this area.
 
 \chapter{Background}
 
@@ -302,7 +374,12 @@ science including effect oriented programming.
 
 \section{Effect Based File Systems}
 
-Continuations in operating systems \cite{DBLP:conf/context/KiselyovS07}.
+Continuations in operating systems \cite{DBLP:conf/context/KiselyovS07} are not
+a new concept.  Kiselyov has demonstrated that algebraic effects can be used in
+a real file system and provide advanced features like snapshots, an undo
+operation and copy-on-write behaviour. Although this publication does not
+consider the performace of implementing features in this way it demonstrates that
+file systems can be built around continuations.
 
 \section{Effect Handlers and UNIX}
 
@@ -320,12 +397,15 @@ worth mentioning \texttt{sed} has $20,000+$ lines of code} from which he only
 implements string replacement.
 
 \chapter{Base Implementation}
+\label{baseimplementation}
 
-\section{Effect Oriented Programming in Unison}
+\section{A Basic UNIX Implementation}
 
-As is shown in section \ref{subsection:unison}, effect oriented programming in
-Unison is composed of an effect definition with an effect signature and a set
-of effect operations and any handlers for that effect signature.
+This chapter outlines and details a Unison implementation of the toy
+\textsc{Unix} written by Hillerstr\"{o}m \cite{hillerstrom2022foundations}.
+Hillerstr\"{o}m's original is written in a fictional Lambda calculus that allows
+for using Shallow, Deep and Parameterised handlers. in the Unison implemenation
+I use only shallow handlers.
 
 \section{Program Status}
 \label{status}
@@ -536,6 +616,7 @@ as a return code which the whole function can return. We can now run
 We now get the 0 return code as the result of the computation, indicating it was successful.
 
 \section{Users and Environment}
+\label{userspace}
 
 To introduce the concept of a user-space and users we can start by adding some
 hard coded users. For now, alice, bob and a root user: \texttt{unique type User
@@ -913,6 +994,77 @@ mv src dest =
 
 \end{tcolorbox}
 
+\subsection{File System Handlers}
+
+The handler for \texttt{FileRW} is fairly simple. It takes a request and
+matches on the operations. If the operation is \texttt{read} it returns the
+text at the corresponding data region. If the operation is \texttt{write} it
+appends the text to the end of the data region pointed to by the I-number.
+It makes use of the underlying \texttt{fwrite} and \texttt{fread} functions
+that traverse the filesystem data structure, they are listed in the appendix.
+It will silently fail currently which we will address in the next chapter.
+
+\begin{lstlisting}[language=unison]
+fileRW : Request {FileRW} a ->{State FileSystemT, Error} a
+fileRW result =
+    match result with
+        { read i -> resume } ->
+            let fs = get ()
+                text = fread i fs
+                match text with
+                    Left text -> handle resume text with fileRW
+                    Right () -> 
+                        handle resume "" with fileRW
+        { write (i, text) -> resume } ->
+            let fs = get ()
+                fs' = fwrite i text fs
+                put fs'
+                handle resume () with fileRW
+        { result } -> result
+\end{lstlisting}
+
+The handler for \texttt{FileCO} is also fairly simple. It takes a request and
+matches on the operations. If the operation is \texttt{create} it returns a
+fresh I-number for the new file. If the operation is \texttt{open} it returns
+the I-number associated with the filename. It makes use of the underlying
+\texttt{fcreate} and \texttt{fopen}.
+
+\begin{lstlisting}[language=unison]
+fileCO : Request {FileCO} a ->{FileRW, State FileSystemT, Error} a
+fileCO result =
+    match result with
+        { create name -> resume } ->
+            let fs = get ()
+                (ino, fs') = fcreate name fs
+                put fs'
+                handle resume ino with fileCO
+        { open name -> resume } ->
+            let fs = get ()
+                ino = fopen name fs
+                put fs
+                handle resume ino with fileCO
+        { result } -> result
+\end{lstlisting}
+
+Finally, \texttt{FileLU} which follows the same structure as the other handlers.
+
+\begin{lstlisting}[language=unison]
+fileLU : Request {FileLU} a ->{FileRW, State FileSystemT, Error} a
+fileLU result =
+    match result with
+        { link (src, dest) -> resume } ->
+            let fs = get ()
+                fs' = flink src dest fs
+                put fs'
+                handle resume () with fileLU
+        { unlink name -> resume } ->
+            let fs = get ()
+                fs' = funlink name fs
+                put fs'
+                handle resume () with fileLU
+        { result } -> result
+\end{lstlisting}
+
 \section{Pipes}
 
 In \textsc{Unix}, a pipe is essentially syntactic sugar for connecting the input
@@ -930,11 +1082,11 @@ writing to \texttt{stdout} and \texttt{await} is reading from \texttt{stdin}.
 \begin{lstlisting}[language=unison]
 unique ability Await a
     where
-        await: () -> {Await } a
+        await: () -> a
 
 unique ability Yield a
     where
-        yield: a -> {Yield } ()
+        yield: a -> ()
 \end{lstlisting}
 
 \subsection{Cat}
@@ -943,7 +1095,6 @@ In \textsc{Unix}, \texttt{cat} prints the contents of a file to
 character at a time other utilities can simply await input.  
 
 \begin{lstlisting}[language=unison]
--- TODO check this works 
 cat: Text -> {FileRW, FileCO, Yield Text, e} -> ()
 cat fname = 
   let ino = open fname
@@ -952,20 +1103,16 @@ cat fname =
 
 \end{lstlisting}
 
-\subsection{Grep}
+\subsection{Find}
 
-The \texttt{Unix} utility grep is used for searching for strings within a body
-of text. At it's most simple  form it returns true if it finds an instance of
-the target string in the source. Grep is often used as a consumer of a pipe
-which is why it will be implemented using await.
+We define a new program \texttt{find} that searches for a string in a the output of a pipe. This is done by yielding the output of the pipe to the \texttt{find} function which then awaits the string to search for. If the string is found it yields true, otherwise it yields false.
 
 \begin{lstlisting}[language=unison]
--- TODO check this works
-grep: Text ->{Await Text} Boolean 
-grep target = 
-  grepRec target buffer n length =
+find: Text ->{Await Text} Boolean 
+find target = 
+  findRec target buffer n length =
     if n < length then
-      grepRec target (buffer ++ !await) n+1 length
+      findRec target (buffer ++ !await) n+1 length
     else 
       if buffer == target then
         True
@@ -973,8 +1120,8 @@ grep target =
         if buffer == "" then
           False
         else 
-          grepRec target ((drop 1 buffer) ++ !await) n length
-  grepRec target "" 0 (length target)
+          findRec target ((drop 1 buffer) ++ !await) n length
+  findRec target "" 0 (length target)
 
 \end{lstlisting}
 
@@ -982,7 +1129,7 @@ grep target =
   \section*{Program 4 -- Searching in a set of files}
   
   Given a list of filenames we want to return the name of each file that
-  contains a particular string. We can compose \texttt{cat} and \texttt{grep}
+  contains a particular string. We can compose \texttt{cat} and \texttt{find}
   to achieve this.
 
   \begin{lstlisting}[language=unison]
@@ -991,7 +1138,7 @@ grep target =
   searchFiles target fnames = match fnames with 
     [] -> []
     fname +: rest -> 
-      if pipe (cat fname) (grep target) then
+      if pipe (cat fname) (find target) then
         fname ++ searchFiles target rest
       else
         searchFiles target rest
@@ -1154,7 +1301,20 @@ scheduler st request = match request with
             runNext (Sstate q' done pid pnext)
 \end{lstlisting}
 
+The handler takes a \texttt{Sstate} and a request. If the request is a return
+value it appends the result to the list of done processes and runs the next
+process. If the request is a fork it creates a new process with the next pid
+and handles it's resumption. The parent process is put back into a
+\texttt{Proc} type and added to the back of the queue with a process ID of
+zero. Interrupting simply causes the process to be put back into the queue as
+ready to run while running the next operation. Waiting for a process is more
+complex. If the process exists in the queue it is blocked and the resumption is
+handled with the new state. If the process does not exist in the queue it is
+added to the back of the queue as ready to run. Therefore, if the process ID it
+has been asked to wait on does not exist it behaves the same as interrupt.
+
 \chapter{Extensions}
+\label{extensions}
 
 \section{Error Handling}
 
@@ -1207,20 +1367,68 @@ warn request =
         { result } -> result
 \end{lstlisting}
 
+We provide two handlers, \texttt{fail} and \texttt{warn}. \texttt{fail} will
+print the error message and exit the program with a return code of 1 thus
+halting execution. \texttt{warn} will print the error message and continue
+execution by handling the resumption.
+
 \section{Environment Variables}
 
-\begin{lstlisting}[language=unison]
-unique type User = Alice | Bob | Root
+In the implementation outlined in Chapter \ref{baseimplementation}, the
+environment is solely the user that is currently logged in. No other
+information is stored or can be stored. In \textsc{Unix}, \emph{environment
+variables} are used to store and get information about the current environment
+from within and outside applications. In the \textsc{Unix} shell, a user can
+`ask' for the value of a shell with the \texttt{\$} prefix. For example,
+\texttt{echo \$USER} will print the username of the currently logged in user.
+It's not just the shell -- scripts and programs can also access this
+information and use it in control flow.
 
+\subsection{Getting and Setting Environment Variables}
+
+In the implementation detailed in section \ref{userspace} the operation
+\texttt{ask} may only ever return the name of the current user. Instead of
+\texttt{ask} having the type \texttt{() -> Text} it now takes an argument of
+type \texttt{Text} which represents the name of the environment variable it
+should lookup and return. In this way it now acts as a get operation for
+environment variables. 
+
+Now that there is a way to `get' environment variables
+it makes sense to introduce a `set' operation. \texttt{setvar} takes the name
+of an environment variable and another argument of type \texttt{Text}
+representing it's new value and updates it in the store.
+
+\begin{lstlisting}[language=unison]
 unique ability Session
     where
         su: User -> ()
         ask: Text -> Text
-        export: Text -> Text -> ()
+        setvar: Text -> Text -> ()
+\end{lstlisting}
 
+It is now possible to update \texttt{whoami} to use this new syntax.
+
+\begin{lstlisting}[language=unison]
 whoami: '{Session} Text
 whoami _ = ask "USER"
+\end{lstlisting}
 
+\subsection{Remark on Storing Environment Variables}
+
+If this program was written in a more conventional style the arguments to
+\texttt{env} (the handler for \texttt{Session}) would have to be modified to
+accommodate a new argument that is the state for environment variables or a
+global data structure would have to be introduced. Since this implementation
+uses effect handlers the \texttt{State} handler used in the filesystem can be
+added to the type signature of \texttt{env} as an effect variable meaning the
+arguments to \texttt{env} do not change and no additional data structures need
+be implemented. This is discussed more in section \ref{effop}.
+
+\subsection{Updated Environment Handler}
+
+The handler can now be updated and extended to handle the new and updated operations.
+
+\begin{lstlisting}[language=unison]
 env: User -> Request {Session} a ->{State [(User, [(Text, Text)])]} a
 env user request = 
     match request with
@@ -1242,189 +1450,139 @@ env user request =
         {su user' -> resume} -> 
             handle resume () with env user'
 
-        {export var val -> resume} -> 
+        {setvar var val -> resume} -> 
             let st = get ()
                 envs = lookupEnvs user st
                 envs' = modifyEnvVar var val envs
                 put (modifyEnvs user envs' st) 
                 handle resume () with env user
-
-lookupEnvVar: Text -> [(Text, Text)] -> Text
-lookupEnvVar var env =
-    match env with
-        [] -> ""
-        (var', val) +: rest ->
-            if var == var' then val
-            else lookupEnvVar var rest
-
-modifyEnvVar: Text -> Text -> [(Text, Text)] -> [(Text, Text)]
-modifyEnvVar var val env =
-    match env with
-        [] -> [(var, val)]
-        (var', val') +: rest ->
-            if var == var' then (var, val) +: rest
-            else (var', val') +: modifyEnvVar var val rest
-
-lookupEnvs: User -> [(User, [(Text, Text)])] -> [(Text, Text)]
-lookupEnvs user envs =
-    match envs with
-        [] -> []
-        (user', env) +: rest ->
-            if userEquals user user' then env
-            else lookupEnvs user rest
-
-modifyEnvs: User -> [(Text, Text)] -> [(User, [(Text, Text)])] -> [(User, [(Text, Text)])]
-modifyEnvs user env envs =
-    match envs with
-        [] -> [(user, env)]
-        (user', env') +: rest ->
-            if userEquals user user' then (user, env) +: rest
-            else (user', env') +: modifyEnvs user env rest
-
-userEquals: User -> User -> Boolean
-userEquals user user' =
-    match user with
-        Alice -> 
-            match user' with 
-                Alice -> true
-                _ -> false
-        Bob -> 
-            match user' with 
-                Bob -> true
-                _ -> false
-        Root -> 
-            match user' with 
-                Root -> true
-                _ -> false
 \end{lstlisting}
 
+The main difference aside from the new operations, is the type signature which now includes \texttt{{State [(User, [(Text, Text)])]}}
+
+The \texttt{su} operation did not require any modification. \texttt{ask} now
+uses it's first argument to check if the environment variable being requested
+is \texttt{``USER''} or another variable. If it is user it calls resume with
+the hard-coded \texttt{Text} version of the user.  In the general case it uses
+lookup functions that navigate the environment variables data structure and
+return the correct value for the correct user. This mix of hard coded and user
+defined environment variables is caused by the hard coded users, and is fixed
+in the next section, section \ref{genericusers}.
+
+Another interesting feature is the case where a program requests the value of
+an environment variable that is not set. \textsc{Unix} will return an empty
+string in this case so \texttt{lookupEnvVar} will return an empty string if it
+does not exist.
+
+\subsection{Unlisted Functions}
+
+The above handler makes use of the functions \texttt{lookupEnvVar,
+modifyEnvVar, lookupEnvs, modifyEnvs} and \texttt{userEquals}. The lookup and
+modify functions traverse and update the \texttt{[(User, [(Text, Text)])]} data
+structure that environment variables are stored in and \texttt{userEquals}
+returns true if the two given users are the same. These functions are listed in
+the appendix.
+
 \section{Generic Users}
+\label{genericusers}
+
+Now that there are user-defined environment variables it makes sense to add
+user-defined users as well. The \texttt{User} type is modified to have a
+\texttt{Username} constructor which allows a user to be constructed with an
+argument of type \texttt{Text}.
 
 \begin{lstlisting}[language=unison]
 unique type User = Username Text
+\end{lstlisting}
 
+\subsection{Effect Operation}
+
+The \texttt{Session} operation can now be extended to allow privileged users to
+create new users. \texttt{adduser} takes one argument of type \texttt{Text}
+which is the username of the new user.
+
+\begin{lstlisting}[language=unison]
 unique ability Session
     where
         su: Text -> ()
         ask: Text -> Text
         export: Text -> Text -> ()
         adduser: Text -> ()
+\end{lstlisting}
 
-whoami: '{Session} Text
-whoami _ = ask "USER"
+\subsection{Changes to the Handler}
 
-env: User -> Request {Session} a ->{State [(User, [(Text, Text)])]} a
-env user request = 
-    match request with
-        {result} -> result
+The only operations that need to be modified is \texttt{su} and \texttt{ask}.
+\emph{Substitute user} now checks if the user exists through the
+\texttt{userExists} function. There is no need to introduce additional state to
+create new users, the handler simply uses the \texttt{[(User, [(Text, Text)])]}
+data structure to keep track of both the users and their environment variables.
 
-        { ask var -> resume } -> 
-           let st = get ()
-               envs = lookupEnvs user st
-               val = lookupEnvVar var envs
-               handle resume val with env user
+\begin{lstlisting}[language=unison]
+{su user' -> resume} -> 
+    if userExists (Username user') (get ()) then
+        handle resume () with env (Username user')
+    else 
+        throw UserDoesntExist
+        handle resume () with env user   -- fail
+\end{lstlisting}
 
-        {su user' -> resume} -> 
-            if userExists (Username user') (get ()) then
-                handle resume () with env (Username user')
-            else 
-                handle resume () with env user   -- fail
+To add a new user the handler checks if there is already an instance of that
+user in the state. If there is it just handles the resumption without modifying
+the state. If the user does not exist then it adds the user to the state along
+with an entry in the new users environment variables called \texttt{USER} which
+can be accessed by \texttt{ask}.
 
-        {export var val -> resume} -> 
+\begin{lstlisting}[language=unison]
+{adduser user' -> resume} ->
             let st = get ()
-                envs = lookupEnvs user st
-                envs' = modifyEnvVar var val envs
-                put (modifyEnvs user envs' st) 
-                handle resume () with env user
-
-        {adduser user' -> resume} ->
-            if userToText user == "root" then
-                let st = get ()
                     newuser = (Username user')
-                    newvars = [("USER", user')]
-                    newenv = modifyEnvs newuser newvars st
-                    if (userExists newuser st) then
+                    if not (userExists newuser st) then
+                        newvars = [("USER", user')]
+                        newenv = modifyEnvs newuser newvars st
                         put newenv
                         handle resume () with env newuser
                     else 
                         handle resume () with env user
-            else 
-                handle resume () with env user   -- fail
 
-lookupEnvVar: Text -> [(Text, Text)] -> Text
-lookupEnvVar var env =
-    match env with
-        [] -> ""
-        (var', val) +: rest ->
-            if var == var' then val
-            else lookupEnvVar var rest
+\end{lstlisting}
 
-modifyEnvVar: Text -> Text -> [(Text, Text)] -> [(Text, Text)]
-modifyEnvVar var val env =
-    match env with
-        [] -> [(var, val)]
-        (var', val') +: rest ->
-            if var == var' then (var, val) +: rest
-            else (var', val') +: modifyEnvVar var val rest
+Finally, the match statement can be removed from \texttt{ask} as now when a user is created they are created with the \texttt{"USER"} environment variable set. The last step is to add an initial userspace which just contains the root user and their environment variable.
 
-lookupEnvs: User -> [(User, [(Text, Text)])] -> [(Text, Text)]
-lookupEnvs user envs =
-    match envs with
-        [] -> []
-        (user', env) +: rest ->
-            if userToText user == userToText user' then env
-            else lookupEnvs user rest
-
-modifyEnvs: User -> [(Text, Text)] -> [(User, [(Text, Text)])] -> [(User, [(Text, Text)])]
-modifyEnvs user env envs =
-    match envs with
-        [] -> [(user, env)]
-        (user', env') +: rest ->
-            if userToText user == userToText user' then (user, env) +: rest
-            else (user', env') +: modifyEnvs user env rest
-
-userExists: User -> [(User, [(Text, Text)])] -> Boolean
-userExists user envs =
-    match envs with
-        [] -> false
-        (user', env) +: rest ->
-            if userToText user == userToText user' then true
-            else userExists user rest
-
-userToText: User -> Text
-userToText user = 
-    let (Username username) = user
-        username
-
+\begin{lstlisting}[language=unison]
 initialUserspace : [(User, [(Text, Text)])]
 initialUserspace = [(Username "root", [("USER", "root")] )]
 \end{lstlisting}
 
+Userspace code can now be run with \texttt{handle (handle ... with env (Username "root")) with initialUserspace}.
+
+
 \section{Permissions}
+\label{permissions}
+
+In Unix file permissions are stored in the I-node of a file.
+In this implementation, we demonstrate how an effect handler can be used to manage permissions.
+First, we introduce a new type \texttt{Permission} which represents the different types of permissions that can be granted to a user. We also introduce \texttt{all} which is a list containing every permission.
 
 \begin{lstlisting}[language=unison]
 unique type Permission = Read | Write | AddUser | Grant | Revoke | Execute
 
 all : [Permission]
 all = [Read, Write, AddUser, Grant, Revoke, Execute]
+\end{lstlisting}
 
+Now we need a way to modify a user's permissions. \texttt{grant} and \texttt{revoke} are two new operations that take a username and a permission and either add or remove that permission from the user's list of permissions.
+
+\begin{lstlisting}[language=unison]
 unique ability Permit 
     where 
         grant: Text -> Permission -> ()
         revoke: Text -> Permission -> ()
+\end{lstlisting}
 
-checkPermission : User -> Permission -> [(Text, [Permission])] ->{e, Error, IO, Exception} ()
-checkPermission user required perms =
-    match perms with
-        [] -> throw PermissionDenied
-        (user', perms') +: rest ->
-            if userToText user == user' then
-                if allowed required perms' then
-                    ()
-                else
-                    throw PermissionDenied
-            else checkPermission user required rest
+Finally we introduce the monolithic handler that we use to implement permissions. Notice the handler handles every effect we have defined thus far although notice from the right hand side of the type signature, that it only handles the \texttt{Permit} abilities.
 
+\begin{lstlisting}[language=unison]
 permissions: User -> Request {e, Permit, Session, FileRW, FileLU, FileCO, Co} a ->{e, Session, FileRW, FileLU, FileCO, Co, Error, State [(Text, [Permission])], IO, Exception} a
 permissions user request = 
     match request with
@@ -1506,6 +1664,1345 @@ permissions user request =
             handle resume () with permissions user
 
         {result} -> result
+\end{lstlisting}
+
+The handler works by once again using the \texttt{State} effect to store a list
+of users and their permissions. Whenever the handler encounters an effect it
+will check the currently logged in users permissions, and if the user has the
+corerct permissions, it will run the original effect with it's original
+arguments. The handler keeps track of which user is logged in through the user
+argument to itself. If it encounters a \texttt{su} operation it will update
+this value.
+
+The \texttt{grant} and \texttt{revoke} operations are implemented by simply 
+traversing and modifying the data structure stored by the \texttt{State} effect.
+
+The final step is to add an initial permissions list which contains the root
+user and all permissions.
+
+\begin{lstlisting}[language=unison]
+initialPermissions : [(Text, [Permission])]
+initialPermissions = [("root", all)]
+\end{lstlisting}
+
+\subsection{Remark on Multihandlers Handlers in Unison}
+
+In the implementation of the permissions handler, there is a lot of repeated
+code this is because we are forced to explicitly handle every effect. There is
+no way to condense the repeat definitions into a pattern match or similar
+within the match statement. This is discussed further in section
+\ref{multihandler}. 
+
+\section{An Alternate Scheduler}
+
+The scheduler in section \ref{extensions} is a simple round-robin scheduler
+while not dissimilar to \textsc{Unix}'s multilevel feedback queue round robin
+scheduler it is much more simplistic. Even in widely used systems like Linux
+which switches between multiple algorithms, scheduling remains very much
+unsolved \cite{Lozi2016}.
+
+To improve the scheduler we introduce the concept of priority levels through a
+nice value. In Linux, nice values range from -20 to 19 with -20 being the
+highest priority. Each process has a nice value associated with it that the
+user can manually change to increase or decrease the priority of a process. 
+
+\subsection{Effect Signature}
+
+The \texttt{Co} effect signature is updated to include \texttt{nice} and
+\texttt{renice} operations for getting and setting nice values respectively.
+
+\begin{lstlisting}[language=unison]
+unique ability Co 
+    where 
+        ufork: Nat
+        wait: Nat -> ()
+        uinterrupt: ()
+        nice: Nat -> Int
+        renice: Nat -> Int -> ()
+\end{lstlisting}
+
+To avoid breaking the original \texttt{scheduler} these effects are handled but
+simply handle the resumption and perform no computation.
+
+\subsection{Priority Queue}
+
+The next step is to create a new \texttt{runNext} function that takes into
+account the nice value of each process.
+
+\begin{lstlisting}[language=unison]
+runNextNice: Sstate a e -> [(Nat, Int)] ->{e} List (Nat, a)
+runNextNice st niceValues = 
+    let (Sstate q done pid pnext) = st
+        match q with
+            [] -> done
+            (pid', Blocked pid'' resume) +: q' -> 
+                runNextNice (Sstate (q' lib.base.data.List.++ [(pid', Blocked pid'' resume)]) done pid pnext) niceValues
+            (pid', Ready resume) +: q' ->
+                match lowestNiceInQueue niceValues q with
+                    Left (pid', Ready resume) -> 
+                        let st' = (Sstate q' done pid' pnext)
+                            Proc (resume') = resume
+                            resume' st'
+                    Left (pid', Blocked pid'' resume) ->             -- unreachable
+                        let st' = (Sstate q' done pid' pnext)
+                            Proc (resume') = resume
+                            resume' st'
+                    Right () -> 
+                        let st' = (Sstate q' done pid' pnext)
+                            Proc (resume') = resume
+                            resume' st'
+\end{lstlisting}
+
+The function \texttt{lowestNiceInQueue} takes a list of pairs of procces ID's
+and nice values and the \texttt{Sstate} it is the same as \texttt{runNext}
+apart from the ready branch. Instead it checks if the is a process that is
+ready to be run with a lower nice value than the one at the front of the list.
+If there is it runs that instead. The Blocked branch is unreachable as
+\texttt{lowestNiceInQueue} will always return a ready process but it must be
+put there to satisfy the typechecker.
+
+\subsection{An Aging Scheduler}
+
+An aging scheduler is a type of scheduler that increases the priority of a
+process the longer it has been waiting. This is done to prevent starvation of
+low priority processes that otherwise would not be run. This is achieved by
+increasing the priority of a process every time it forks and setting it's child
+to have it's old nice value.
+
+The scheduler is implemented through a modified version of the
+\texttt{scheduler} handler. As such only the operations that have changed or
+been added are listed, the others just have \texttt{runNext} swapped for
+\texttt{runNextNice}.
+
+\begin{lstlisting}[language=unison]
+schedAging: Sstate a e -> Request {Co, e} a ->{e, State [(Nat, Int)]} List (Nat, a)
+schedAging st request = match request with
+    ....
+    { ufork -> resume } ->
+        let resume' = (Proc (st -> handle resume 0 with scheduler st))
+            (Sstate q done pid pnext) = st
+            nicevalue = lookupNice pid !get
+
+            if nicevalue - +1 <= minNice then
+                let q' = q lib.base.data.List.++ [(pid, Ready resume')]
+                    pid' = pnext
+                    pnext' = pnext + 1
+                    handle resume pid' with scheduler (Sstate q' done pid pnext')
+            else
+                put (modifyNice pnext nicevalue !get)
+                put (modifyNice pnext (nicevalue - +1) !get)
+
+                pid' = pnext
+                pnext' = pnext + 1
+
+                q' = q lib.base.data.List.++ [(pid', Ready resume')]
+                handle resume pid' with schedAging (Sstate q' done pid pnext)
+
+    { nice pid -> resume } ->
+        let (Sstate q done pid pnext) = st
+            nicevalue = lookupNice pid !get
+            handle resume nicevalue with schedAging st
+
+    { renice pid newNice -> resume} -> 
+        let resume' = (Proc (st -> handle resume () with scheduler st))
+            (Sstate q done pid pnext) = st
+            put (modifyNice pid newNice !get)
+            runNextNice (Sstate q done pid pnext) !get
+    ...
+\end{lstlisting}
+
+The interesting case here is fork where the nice value of the parent is
+decreased by one and the child is set to the old nice value of the parent. This
+will cause process that have been waiting for a long time to have a higher and
+hopefully be run sooner.
+
+\subsection{Simple Starvation Heuristic}
+
+Yet another improvement to the scheduler is to introduce a simple heuristic to
+prevent starvation. The heuristic is that if a process reached minimum nice
+through a fork then it has probable been interrupt a lot and as such is
+unlikely to run even if we adjust the nice. To save on the extra computation of
+handling nice values we can switch back to the round robin scheduler just by
+handling the same state with the old handler.
+
+\chapter{Evaluation and Discussion}
+
+\section{Unison}
+
+The following section details some of the quirks and missing features of the Unison
+effect systsem that were encountered during the implementation of \textsc{Unix}.
+
+\subsection{Multihandler Pattern Matching}
+\label{multihandler}
+
+If we consider a handler, like the one in section \ref{permissions} for
+permissions, that handles multiple effects, it would be useful to be able to
+pattern match on the effect signature or across multiple operations and invoke
+them once.
+
+For example, in the permissions handler there is lots of repeated code of the general form:
+
+\begin{lstlisting}
+  { [effect] [args] -> resume } -> 
+    checkPermission user perm !get
+    [effect] [args]
+    handle resume () with permissions user
+\end{lstlisting}
+
+If we were allows to have a syntax like \texttt{\{effect1 | effect2 | effect3\}
+[args] -> resume} then we could condense the repeated code into a single branch
+of the match statement. Even if we could only perform this match for operations
+of the same effect signature it would still massively reduce code reuse.
+
+\begin{lstlisting}[language=unison]
+permissions: User -> Request {e, Permit, Session, FileRW, FileLU, FileCO, Co} a ->{e, Session, FileRW, FileLU, FileCO, Co, Error, State [(Text, [Permission])], IO, Exception} a
+  {grant user' perm -> resume} -> ...
+
+  {revoke user' perm -> resume} -> ...
+
+  { read i -> resume } | { write (i, text) -> resume } | { link (src, dest) -> resume } | { unlink name -> resume } | { create name -> resume } | { open name -> resume } | ... -> 
+    checkPermission user Read !get
+    {ability args}
+    handle resume () with permissions user
+\end{lstlisting}
+
+You could even borrow the \texttt{!} syntax and have \texttt{!ability} to represent running an ability with its given arguments.
+With this theoretical syntax the size and complexity of the handler is massively reduced.
+
+\subsection{Effect Variables in Definitions}
+
+In the Unison documentation \cite{unison-abilities} they suggest defining
+abilities with the effct signature as part of the type signature of the effect
+to represent needing access to the ability to be run. For example
+
+\begin{lstlisting}[language=unison]
+unique ability Await a
+  where
+    await : () ->{Await a} a
+    yield : a ->{Await a} ()
+\end{lstlisting}
+
+However, the effect signature \texttt{\{Await a\}} is inferred by the fact
+\texttt{await} and \texttt{yield} are operations of the \texttt{Await} ability.
+You might think it is useful to be able to include other effects but if we were
+to do \texttt{await : () ->\{Await a, Yield a\} a} then the type checker stops
+us with the error \texttt{  EffectConstructorHadMultipleEffects: {Await a3420,
+Yield a3420} a3420}. Furthermore, if you mistakenly put the signature
+\texttt{await () ->\{Await\} a} i.e. you missed the type of a from the
+\texttt{Await} effect variable, then it will attempt to infer the type of
+\texttt{Await} and will no longer throw an error. This is fine until you try to use the effect in a function when you are met with abstract errors like: 
+
+\begin{lstlisting}[style=terminal]
+  The expression in red
+  
+                needs the abilities: {Yield b3407}
+    but was assumed to only require: {Yield a3434, e3439}
+
+      This is likely a result of using an un-annotated function as an argument with concrete abilities. Try adding an annotation to the function definition whose body is red.
+  
+    511 |                     { await () -> resume } -> copipe (resume) p)
+\end{lstlisting}
+
+This error points towards the \texttt{copipe} function as the source of the
+error which in this case is completely fine.
+
+I suggest to anyone using Unison to avoid including effect variables in the
+definition of an ability as it can lead to confusing and abstract errors.
+Furthermore, I would encourage the Unison team to consider removing this
+feature as it seems to cause more problems than it solves. If it is always
+inferred to be the correct type then there is no need to allow a user to set it
+to an incorrect type.
+
+
+\section{Effect Oriented vs Conventional Programming}
+\label{effop}
+
+Consider the following hypothetical implementation of the environment operations from Section \ref{userspace}, which has been implemented in a more conventional style.
+.
+
+\begin{lstlisting}[language=unison]
+adduser': [User] -> Text -> [User]
+adduser' store user =
+    store :+ (Username user)
+
+su' : [User] -> User -> [User]
+su' store user =
+    match store with
+        [] -> store
+        (u +: rest) ->
+            let uname = userToText u
+                username = userToText user
+                if uname == username then
+                    u +: rest
+                else
+                    store
+
+ask': [User] -> Text
+ask' store =
+    match store with
+        [] -> ""
+        (u +: rest) ->
+            let uname = userToText u
+                uname
+\end{lstlisting}
+
+In this version, all the state for the users is stored in a list of users where
+the first one in the list is the currently logged in user. This is already more
+irksome than the handler implementation as the user of the functions has to keep
+track of the state themselves through the return values of \texttt{su'} and
+\texttt{adduser'}.
+
+If we compare this to the handler version the state is set once at the beginning
+by setting which user is logged in initially and then once a block of code is
+being handled the user can ignore the state as it is hidden from them.
+
+
+\begin{figure}[h]
+  \label{fig:seqvshandler}
+\begin{minipage}{0.5\textwidth}
+
+\begin{lstlisting}[style=terminal]
+createAndSwitch: Text -> ()
+createAndSwitch user =
+  adduser user
+  su user
+
+
+> handle createAndSwitch ``alice'' with (Username ''root'')
+
+\end{lstlisting}
+
+\end{minipage}%
+\begin{minipage}{0.5\textwidth}
+
+
+\begin{lstlisting}[style=terminal]
+  createAndSwitch': Text -> [User] -> [User]
+  createAndSwitch' user state =
+    let newState = adduser' state user
+      su' newState user
+
+> createAndSwitch' ``alice'' [(Username ``root'')]
+
+\end{lstlisting}
+\end{minipage}
+\caption{Effect oriented version (\emph{left}) and the standard version (\emph{right})}
+\end{figure}
+
+\subsection{Modularity}
+
+The comparison in Listing \ref{fig:seqvshandler} shows that although both versions require initial state,
+the power of effect handlers allow us to keep the implementation separate from
+the use and as such there is no requirement for the function to manage the state of
+users. As long as the program is run within scope of the handler all operations
+will have access to this state. The result of this is that the effect operations
+behave much more like \textsc{Unix} commands as they can be called without
+having to pass around variables.
+
+Additionally, if we wanted to provide an alternate implementation of
+\texttt{adduser} that logs in the newly created user we could easily accomplish
+this by writing an alternate handler for \texttt{adduser}. The conventional
+version would require a whole new function to be written just to change the line
+\texttt{store :+ (Username user)} to \texttt{(Username user) +: store}. Then
+once that new function was written, we would have to manually change every
+occurence of \texttt{adduser'} where we want to use the new semantics. The
+effect oriented version keeps the same operation and we simply handle any
+functions where we need the new version with the new handler. A much more
+seamless style of coding.
+
+\subsection{Composition}
+
+When we added environment variables to the userspace it was as simple as adding
+the \texttt{State} effect signature with the type being the data structure we
+need. This means in the scope of the \texttt{env} function where this was added
+we could immediately start using \texttt{put} and \texttt{get} to manage the
+state of users and environment variables. We didn't even need to define a new
+handler the \texttt{State} handler can accept any algebraic data type as the
+type to put and get meaning it was as simple as adding another \texttt{handle}
+statement and then modifying the operations.
+
+In contrast, to add environment variables to the conventional code we must
+modify the data type used to store users to be something like \texttt{unique
+type Environment = \{usr: User, envs: [(Text, Text)]\}}. Then all occurrences of
+the operations must be modified to give them values of the new type. The effect
+oriented one simply adds a handle statement and once again leaves the type
+signatures of the operations unchanged.
+
+\subsection{Performance}
+
+Unfortunately, in Unison there is an enormous performace impact caused by using
+abilities. Using the timers micro-benchmarking library \cite{timers}, I ran code
+that created a user with a random name, and switched to that user. It then
+repeated this action 1000 times and recorded the results.
+
+\begin{table}[htbp]
+    \centering
+    \begin{tabular}{lcc}
+        \toprule
+        \textbf{Metric} & \textbf{Effectful} & \textbf{Conventional} \\
+        \midrule
+        Samples           & 1                  & 1 \\
+        \midrule
+        Total (realtime)  & 2.021658s          & 15µs \\
+        Mean (realtime)   & 2.021658s          & 15µs \\
+        Median (realtime) & 2.021658s          & 15µs \\
+        Min (realtime)    & 2.021658s          & 15µs \\
+        Max (realtime)    & 2.021658s          & 15µs \\
+        \midrule
+        Total (cpu)       & 2.152157s          & 26µs \\
+        Mean (cpu)        & 2.152157s          & 26µs \\
+        Median (cpu)      & 2.152157s          & 26µs \\
+        Min (cpu)         & 2.152157s          & 26µs \\
+        Max (cpu)         & 2.152157s          & 26µs \\
+        \bottomrule
+    \end{tabular}
+    \caption{Benchark results for creating and switching to 1000 randomly generated users}
+    \label{tab:label_comparison}
+  \end{table}
+
+  The results are clear -- the effect oriented version is orders of magnitude
+slower. Even accounting for the fact it has extra overhead for error handling
+and environment variables it is still far slower. This may be due to the
+compiler being better optimised for purely functional applications and it would
+be interesting to see how the effects are implemented in Unison for this reason.
+
+
+\chapter{Conclusion and Future Work}
+
+\section{Base Implementation}
+
+\subsection{Summary}
+
+The basic implementation of Unix was a success as every feature outlined by 
+Hillerstr\"{o}m was implemented in Unison. 
+
+\subsection{Future Work}
+
+\emph{\textbf{Shell}} A logical extension to this project would be creating a shell like \texttt{bash}
+or similar to allow users to run the commands in a more real-time way. Writing a
+shell would be mostly implementing the parser which is usually unrelated to
+effect oreinted programming which is why it was omitted from this project.  It
+may also be interesting to see if parsers can be written in an effect oriented
+style and if there is any benefit to this approach.
+
+\emph{\textbf{Implementation in other languages}} Another interesting project
+would be to implement the same Unix in another language that has effect handlers like
+Frank or Koka and compare the two implementations. This would allow for a more
+direct comparison of the two languages and their effect systems.
+
+\section{Extended Implementation}
+
+\subsection{Summary}
+
+While the extension was successful in that new features were added, not all of them 
+were as polished as the base implementation. The permissions system was a success
+and a good example of using a multihandler as state. The scheduler was less successful
+as it was unlikely to actually improve the performance of the system and was more
+of a demonstration of how effect handlers can be used to implement complex systems.
+
+\subsection{Future Work}
+
+\emph{\textbf{Grep}} Implementing a version of grep would be a good way to
+provide some more advanced examples of effect handlers. This would involve
+parsing regular expressions from the pipe command and then matching based on 
+the regular expression.
+
+\emph{\textbf{Linux}} Another interesting project would be attaching effect handlers to Linux. This could be done through a kernel module and then used for other applications like writing another scheduling algorithm or making the filesystem closer to the one outlined in \cite{DBLP:conf/context/KiselyovS07}. The scope of the project would have to be reduced to the complexity and size of linux. It would also be a good opportunity to explore performant effects.
+
+\section{Evaluation}
+
+\subsection{Summary}
+
+It is hard to say if effect oriented programming is better or worse than
+conventional programming. The performance impact of using effects can be
+considerable but the syntax can be much more concise and modular. For this
+reason we are more outlining differences and areas were the effect handlers are
+probably better (i.e. their modularity and composing them) and some pain points
+like performance that exist in the Unison implementation. We also suggest some
+potential improvements to the Unison effect system that would make it better
+equipped for multihandlers.
+
+\subsection{Future Work}
+
+\emph{\textbf{Performance}} The performance of any technology is a major
+consideration in it's adoption by industry. It would be useful to do more
+thorough profiling of the Unison compiler to see where the performance
+bottlenecks are and if they can be improved.
+
+\emph{\textbf{Comparison with a more traditional implementation}} Although this 
+was partly covered in the evaluation section it would be interesting to see how
+the effect oriented version of Unix compares to a more traditional version in
+a more complete and thorough way. This would involve implementing the same
+features without the use of effect handlers and comparing them.
+
+\section{Final Thoughts}
+
+The Unison effect system is as powerful and expressive as any other effect
+system. It is capable of writing complex effect oriented programs like Unix and 
+despite some performance issues it is a very promising language. Overall, this project 
+has achieved it's goals and has provided a demonstration of the power of effect
+oriented programming. While it is not perfect it is a good starting point for future
+work in this area.
+The Unix implementation created could serve as good platform for further
+development and exploration of effect oriented programming. More features 
+can always be added and the system can be made more robust and efficient.
+
+To conclude, the effect oriented programming is here to stay and it is likely
+that it will become more popular as more languages like Unison adopt it. 
+
+\part{Appendices}
+
+\chapter{Final State of the Code}
+
+\section{Base Implementation}
+
+\begin{lstlisting}[language=unison]
+\end{lstlisting}
+
+\section{Extended Implementation}
+
+The final version of the code after all the extensions outlined in chapter \ref{extensions} were implemented.
+
+\begin{lstlisting}[language=unison]
+{-
+    BasicIO
+    =========
+-}
+
+unique ability BasicIO
+    where
+        echo: Text -> ()
+
+basicIO : Request {BasicIO} a ->{IO, Exception} a
+basicIO result =
+    match result with
+        { echo text -> resume } -> putText stdOut text; handle resume () with basicIO
+        { result } -> result
+
+
+{-
+    Status
+    =========
+-}
+
+unique type Empty = 
+
+-- The unix exit command that allows you to exit with error code
+unique ability Status
+       where
+            exit: Nat -> Empty
+
+-- handles the exit command which just returns an integer
+exitHandler : Request {g, Status} a -> Nat
+exitHandler request =
+    match request with
+          { result } -> 0
+          { exit v -> resume } -> v
+
+{-
+Userspace
+==========
+
+This handles the hard coded users and their environments.
+It allows for whoami and su commands to be run.
+
+-}
+
+-- The users (hard coded)
+unique type User = Username Text
+
+unique ability Session
+    where
+        su: Text -> ()
+        ask: Text -> Text
+        setvar: Text -> Text -> ()
+        adduser: Text -> ()
+
+whoami: '{Session} Text
+whoami _ = ask "USER"
+
+env: User -> Request {Session} a ->{Error, State [(User, [(Text, Text)])]} a
+env user request = 
+    match request with
+        {result} -> result
+
+        { ask var -> resume } -> 
+           let st = get ()
+               envs = lookupEnvs user st
+               val = lookupEnvVar var envs
+               handle resume val with env user
+
+        {su user' -> resume} -> 
+            if userExists (Username user') (get ()) then
+                handle resume () with env (Username user')
+            else
+                throw NoSuchUser
+                handle resume () with env user   -- fail
+
+        {setvar var val -> resume} -> 
+            let st = get ()
+                envs = lookupEnvs user st
+                envs' = modifyEnvVar var val envs
+                put (modifyEnvs user envs' st) 
+                handle resume () with env user
+
+        {adduser user' -> resume} ->
+            let st = get ()
+                newuser = (Username user')
+                newvars = [("USER", user')]
+                newenv = modifyEnvs newuser newvars st
+                if not (userExists newuser st) then
+                    put newenv
+                    handle resume () with env newuser
+                else 
+                    throw UserExists
+                    handle resume () with env user
+
+lookupEnvVar: Text -> [(Text, Text)] -> Text
+lookupEnvVar var env =
+    match env with
+        [] -> ""
+        (var', val) +: rest ->
+            if var == var' then val
+            else lookupEnvVar var rest
+
+modifyEnvVar: Text -> Text -> [(Text, Text)] -> [(Text, Text)]
+modifyEnvVar var val env =
+    match env with
+        [] -> [(var, val)]
+        (var', val') +: rest ->
+            if var == var' then (var, val) +: rest
+            else (var', val') +: modifyEnvVar var val rest
+
+lookupEnvs: User -> [(User, [(Text, Text)])] -> [(Text, Text)]
+lookupEnvs user envs =
+    match envs with
+        [] -> []
+        (user', env) +: rest ->
+            if userToText user == userToText user' then env
+            else lookupEnvs user rest
+
+modifyEnvs: User -> [(Text, Text)] -> [(User, [(Text, Text)])] -> [(User, [(Text, Text)])]
+modifyEnvs user env envs =
+    match envs with
+        [] -> [(user, env)]
+        (user', env') +: rest ->
+            if userToText user == userToText user' then (user, env) +: rest
+            else (user', env') +: modifyEnvs user env rest
+
+userExists: User -> [(User, [(Text, Text)])] -> Boolean
+userExists user envs =
+    match envs with
+        [] -> false
+        (user', env) +: rest ->
+            if userToText user == userToText user' then true
+            else userExists user rest
+
+userToText: User -> Text
+userToText user = 
+    let (Username username) = user
+        username
+
+initialUserspace : [(User, [(Text, Text)])]
+initialUserspace = [(Username "root", [("USER", "root")] )]
+
+{-
+      Time Sharing
+   ==================
+-}
+
+unique ability Interrupt
+    where
+        interrupt: {Interrupt } ()
+
+
+unique type PState a e = Done a | Paused ('{e} PState a e)
+
+interruptWrite : Request {e, BasicIO} x ->{e, Co, BasicIO} ()
+interruptWrite result =
+    match result with
+        { echo text -> resume } -> 
+            uinterrupt
+            echo text 
+            handle resume () with interruptWrite
+        { result } -> ()
+
+reifyProcess : Request {Interrupt, e} a -> PState a e
+reifyProcess request =
+    match request with
+        { interrupt -> resume } -> Paused (_ -> handle !resume with reifyProcess )
+        { result } -> Done result
+
+unique ability TimeSharing
+    where
+        fork: {TimeSharing } Boolean
+
+-- handler for time sharing ability
+nondet : Request {TimeSharing} a -> [a]
+nondet request =
+    match request with
+        { fork -> resume } -> (handle resume true with nondet) lib.base.data.List.++ (handle resume false with nondet)
+        { result } -> [result]
+
+sched : [PState a {e, TimeSharing}] -> [a] ->{e} [a]
+sched ps done = 
+    match ps with
+        [] -> done
+        (Done res) +: ps' -> sched ps' (res lib.base.data.List.+: done)
+        (Paused m) +: ps' -> sched (ps' lib.base.data.List.++ (handle !m with nondet)) done
+
+timeshare : '{g, Interrupt, TimeSharing} o ->{g} [o]
+timeshare m = sched [Paused (_ -> handle !m with reifyProcess)] []
+
+{-
+  Serial File System
+  ==================
+-}
+
+unique ability State a
+       where
+            put: a -> ()
+            get: () -> a
+
+runState : a -> Request {State a} b -> b
+runState v request =
+    match request with
+        { put v' -> resume } -> handle resume () with runState v'
+        { get () -> resume } -> handle resume v with runState v
+        { result } -> result
+
+unique type DirectoryT = Directory (Text, Nat)
+unique type DataRegionT = DataRegion (Nat, Text)
+unique type INodeT = INode Nat Nat
+unique type IListT = IList (Nat, INodeT)
+unique type FileSystemT = FileSystem (List DirectoryT) (List IListT) (List DataRegionT) Nat Nat
+
+
+initialINode : INodeT
+initialINode = INode 0 0
+
+initialDirectory : DirectoryT
+initialDirectory = (Directory ("stdout", 0))
+
+
+initialDataRegion : DataRegionT
+initialDataRegion = DataRegion (0, "")
+
+initialIList : IListT
+initialIList = IList (0, initialINode)
+
+initialFileSystem : FileSystemT
+initialFileSystem = FileSystem [initialDirectory] [initialIList] [initialDataRegion] 0 0
+
+lookupINode : Nat -> [IListT] -> Either INodeT ()
+lookupINode i ilists =
+    match ilists with
+        [] -> Right ()
+        (IList (i', inode)) +: rest ->
+            if i == i' then Left inode
+            else lookupINode i rest
+
+lookupFName : Text -> [DirectoryT] -> Either Nat ()
+lookupFName name directories =
+    match directories with
+        [] -> Right ()
+        (Directory (name', i)) +: rest ->
+            if name == name' then Left i
+            else lookupFName name rest
+
+modifyINode : Nat -> INodeT -> [IListT] -> [IListT]
+modifyINode i inode ilists =
+    match ilists with
+        [] -> []
+        (IList (i', inode')) +: rest ->
+            if i == i' then (IList (i, inode)) +: rest
+            else (IList (i', inode')) +: modifyINode i inode rest
+
+lookupDataRegion : Nat -> [DataRegionT] -> Either Text ()
+lookupDataRegion i dataRegions =
+    match dataRegions with
+        [] -> Right ()
+        (DataRegion (i', text)) +: rest ->
+            if i == i' then Left text
+            else lookupDataRegion i rest
+
+modifyDataRegion : Nat -> Text -> [DataRegionT] -> [DataRegionT]
+modifyDataRegion i text dataRegions =
+    match dataRegions with
+        [] -> []
+        (DataRegion (i', text')) +: rest ->
+            if i == i' then (DataRegion (i, (text' ++ text))) +: rest
+            else (DataRegion (i', text')) +: modifyDataRegion i text rest
+
+-- fread, implementation of system read
+fread : Nat -> FileSystemT -> Either Text ()
+fread i fs =
+    match fs with
+        FileSystem directories ilists dataRegions _ _ ->
+            match lookupINode i ilists with
+                Left inode ->
+                    match inode with
+                        INode _ dataRegion ->
+                            match lookupDataRegion dataRegion dataRegions with
+                                Left text -> Left text
+                                Right () -> Right ()
+                Right () -> Right ()
+
+-- fwrite, writes to the file system at the given inode with the given text
+fwrite : Nat -> Text -> FileSystemT -> FileSystemT
+fwrite i text fs =
+    match fs with
+        FileSystem directories ilists dataRegions _ _ ->
+            match lookupINode i ilists with
+                Left inode ->
+                    match inode with
+                        INode _ dataRegion ->
+                            FileSystem directories (modifyINode i (INode i dataRegion) ilists) (modifyDataRegion dataRegion text dataRegions) 0 0
+                Right () -> fs
+
+unique ability FileRW
+         where
+                read: Nat -> {FileRW } Text
+                write: (Nat, Text) -> {FileRW } ()
+
+fileRW : Request {FileRW} a ->{State FileSystemT, Error} a
+fileRW result =
+    match result with
+        { read i -> resume } ->
+            let fs = get ()
+                text = fread i fs
+                match text with
+                    Left text -> handle resume text with fileRW
+                    Right () -> 
+                        throw FileNotFound
+                        handle resume "" with fileRW
+        { write (i, text) -> resume } ->
+            let fs = get ()
+                fs' = fwrite i text fs
+                put fs'
+                handle resume () with fileRW
+        { result } -> result
+
+
+fileEcho: Request {BasicIO} a ->{State FileSystemT} a
+fileEcho m = match m with 
+    { echo text -> resume } -> 
+        let fs = get ()
+            put (fwrite 0 text fs)
+            handle resume () with fileEcho
+    { result } -> result
+
+
+fopen : Text -> FileSystemT ->{Error} Nat
+fopen name fs = 
+    match fs with
+        FileSystem directories ilists dataRegions dnext inext ->
+            match lookupFName name directories with
+                Left i -> i
+                Right () -> 
+                    throw FileNotFound
+                    inext
+
+has : Text -> [DirectoryT] -> Boolean
+has name directories =
+    match directories with
+        [] -> false
+        (Directory (name', i)) +: rest ->
+            if name == name' then true
+            else has name rest
+
+fcreate : Text -> FileSystemT -> (Nat, FileSystemT)
+fcreate name fs = 
+    match fs with 
+        FileSystem directories ilists dataRegions dnext inext ->
+            -- file already exists, overwrite it
+            if has name directories then 
+                let ino = (fopen name fs)
+                    inode = lookupINode ino ilists
+                    match inode with
+                        Left inode -> 
+                            match inode with 
+                                INode ino loc ->
+                                    let dreg' = modifyDataRegion loc "" dataRegions
+                                        (ino , FileSystem directories ilists dreg' dnext inext)
+                        Right () -> (ino, fs) -- unreacable
+            else 
+                let inext' = inext + 1
+                    dnext' = dnext + 1
+                    inode = INode inext dnext
+                    ilists' = (IList (inext, inode)) +: ilists
+                    directories' = (Directory (name, inext)) +: directories
+                    (inext, FileSystem directories' ilists' dataRegions dnext' inext')
+
+unique ability FileCO
+    where
+        create: Text -> Nat
+        open: Text -> Nat
+
+fileCO : Request {FileCO} a ->{FileRW, State FileSystemT, Error} a
+fileCO result =
+    match result with
+        { create name -> resume } ->
+            let fs = get ()
+                (ino, fs') = fcreate name fs
+                put fs'
+                handle resume ino with fileCO
+        { open name -> resume } ->
+            let fs = get ()
+                ino = fopen name fs
+                put fs
+                handle resume ino with fileCO
+        { result } -> result
+
+flink: Text -> Text -> FileSystemT ->{Error} FileSystemT
+flink src dest fs =
+    match fs with
+        FileSystem directories ilists dataRegions dnext inext ->
+            if has dest directories then
+               fs -- error, file exists
+            else
+                let ino = lookupFName src directories
+                    match ino with
+                        Left ino ->
+                            let directories' = (Directory (dest, ino)) +: directories
+                                inode = lookupINode ino ilists
+                                match inode with
+                                    Left inode ->
+                                        match inode with
+                                            INode ino loc ->
+                                                  let loc' = loc + 1
+                                                      inode' = INode ino loc'
+                                                      ilists' = modifyINode ino inode' ilists
+                                                      FileSystem directories' ilists' dataRegions dnext inext
+                                    Right () -> 
+                                        throw FileExists
+                                        fs -- unreachable, we know the file exists
+                        Right () -> 
+                            throw FileNotFound
+                            fs -- no such file src
+
+removeINode : Nat -> [IListT] -> [IListT]
+removeINode i ilists =
+    match ilists with
+        [] -> []
+        (IList (i', inode)) +: rest ->
+            if i == i' then rest
+            else (IList (i', inode)) +: removeINode i rest
+
+removeDataRegion : Nat -> [DataRegionT] -> [DataRegionT]
+removeDataRegion i dataRegions =
+    match dataRegions with
+        [] -> []
+        (DataRegion (i', text)) +: rest ->
+            if i == i' then rest
+            else (DataRegion (i', text)) +: removeDataRegion i rest
+
+removeDirectory : Text -> [DirectoryT] -> [DirectoryT]
+removeDirectory name directories =
+    match directories with
+        [] -> []
+        (Directory (name', i)) +: rest ->
+            if name == name' then rest
+            else (Directory (name', i)) +: removeDirectory name rest
+
+funlink: Text -> FileSystemT -> FileSystemT
+funlink name fs =
+    match fs with
+        FileSystem directories ilists dataRegions dnext inext ->
+            if has name directories then
+                let ino = lookupFName name directories
+                    match ino with
+                        Left ino ->
+                             let directories' = removeDirectory name directories
+                                 inode = lookupINode ino ilists
+                                 match inode with
+                                        Left inode ->
+                                            match inode with
+                                                INode ino loc ->
+                                                    if loc > 1 then
+                                                        let loc' = loc - 1
+                                                            inode' = INode ino loc'
+                                                            ilists' = modifyINode ino inode' ilists
+                                                            FileSystem directories' ilists' dataRegions dnext inext
+                                                    else
+                                                        let ilists' = removeINode ino ilists
+                                                            dataRegions' = removeDataRegion loc dataRegions
+                                                            FileSystem directories' ilists' dataRegions' dnext inext
+                                        Right () -> fs -- unreachable, we know the file exists
+                        Right () -> fs -- no such file src
+            else
+                fs -- no such file
+
+
+unique ability FileLU
+       where
+            link: (Text, Text) -> {FileLU } ()
+            unlink: Text -> {FileLU } ()
+
+fileLU : Request {FileLU} a ->{FileRW, State FileSystemT, Error} a
+fileLU result =
+    match result with
+        { link (src, dest) -> resume } ->
+            let fs = get ()
+                fs' = flink src dest fs
+                put fs'
+                handle resume () with fileLU
+        { unlink name -> resume } ->
+            let fs = get ()
+                fs' = funlink name fs
+                put fs'
+                handle resume () with fileLU
+        { result } -> result
+
+fileIO m = handle (handle (handle !m with fileRW) with fileCO) with fileLU
+
+
+{-
+    pipes
+    ======
+-}
+
+unique ability Await a
+    where
+        await: () -> a
+
+unique ability Yield b
+    where
+        yield: b -> ()
+
+pipe : ('{Yield b, e} a) -> ('{Await b, e} a) ->{e} a
+pipe p c = handle c () with
+                (cases
+                    { x } -> x
+                    { await () -> resume } -> copipe (resume) p)
+
+copipe : (b -> {Await b, e} a) -> ('{Yield b, e} a) ->{e} a
+copipe c p = handle p () with
+                (cases
+                    { x } -> x
+                    { yield y -> resume } -> pipe resume '(c y) )
+
+{-
+    Process Syncronization
+    ======================
+-}
+
+unique ability Co 
+    where 
+        ufork: Nat
+        wait: Nat -> ()
+        uinterrupt: ()
+        nice: Nat -> Int
+        renice: Nat -> Int -> ()
+
+unique type Proc a e = Proc (Sstate a e ->{e} List (Nat, a))
+unique type Pstate a e = Ready (Proc a e) | Blocked Nat (Proc a e)
+unique type Sstate a e = {q: List (Nat, Pstate a e), done: List (Nat, a), pid: Nat, pnext: Nat}
+
+runNext: Sstate a e ->{e} List (Nat, a)
+runNext st =
+    let (Sstate q done pid pnext) = st
+        match q with
+            [] -> done
+            (pid', Blocked pid'' resume) +: q' -> 
+                runNext (Sstate (q' lib.base.data.List.++ [(pid', Blocked pid'' resume)]) done pid pnext)
+            (pid', Ready resume) +: q' -> 
+                let st' = (Sstate q' done pid' pnext)
+                    Proc (resume') = resume
+                    resume' st'
+
+modifyQueue: Nat -> [(Nat, Pstate a e)] -> [(Nat, Pstate a e)]
+modifyQueue pid q =
+    match q with
+        [] -> []
+        (pid', pstate) +: rest ->
+            if pid == pid' then rest
+            else (pid', pstate) +: modifyQueue pid rest
+
+lookupNice: Nat -> [(Nat, Int)] -> Int
+lookupNice pid prio =
+    match prio with 
+        [] -> -1 -- maybe warn here
+        (pid', renice) +: rest ->
+            if pid' == pid then
+                renice 
+            else 
+                lookupNice pid rest 
+
+modifyNice: Nat -> Int -> [(Nat, Int)] -> [(Nat, Int)]
+modifyNice pid renice prio =
+    match prio with
+        [] -> [(pid, renice)]
+        (pid', renice') +: rest ->
+            if pid' == pid then
+                (pid, renice) +: rest
+            else 
+                (pid', renice') +: modifyNice pid renice rest
+
+lowestNiceInQueue: [(Nat, Int)] -> [(Nat, Pstate a e)] -> Either (Nat, Pstate a e) ()
+lowestNiceInQueue niceValues q = 
+    match q with 
+        [] -> Right ()
+        (pid, Blocked pid' resume) +: rest -> 
+            lowestNiceInQueue niceValues rest
+        (pid, Ready resume) +: rest ->
+            let nextnice = lookupNice pid niceValues
+                match lowestNiceInQueue niceValues rest with 
+                    Left (pid', pstate) -> 
+                        let nextnice' = lookupNice pid' niceValues
+                            if nextnice < nextnice' then 
+                                Left (pid, Ready resume)
+                            else 
+                                Left (pid', pstate)
+                    Right () -> 
+                        Left (pid, Ready resume)
+
+runNextNice: Sstate a e -> [(Nat, Int)] ->{e} List (Nat, a)
+runNextNice st niceValues = 
+    let (Sstate q done pid pnext) = st
+        match q with
+            [] -> done
+            (pid', Blocked pid'' resume) +: q' -> 
+                runNextNice (Sstate (q' lib.base.data.List.++ [(pid', Blocked pid'' resume)]) done pid pnext) niceValues
+            (pid', Ready resume) +: q' ->
+                match lowestNiceInQueue niceValues q with
+                    Left (pid', Ready resume) -> 
+                        let st' = (Sstate q' done pid' pnext)
+                            Proc (resume') = resume
+                            resume' st'
+                    Left (pid', Blocked pid'' resume) ->             -- unreachable
+                        let st' = (Sstate q' done pid' pnext)
+                            Proc (resume') = resume
+                            resume' st'
+                    Right () -> 
+                        let st' = (Sstate q' done pid' pnext)
+                            Proc (resume') = resume
+                            resume' st'
+
+minNice : Int
+minNice = -20
+
+schedAging: Sstate a e -> Request {Co, e} a ->{e, State [(Nat, Int)]} List (Nat, a)
+schedAging st request = match request with
+    {result} ->
+        let (Sstate q done pid pnext) = st
+            done' = done lib.base.data.List.++ [(pid, result)]
+            runNextNice (Sstate q done' pid pnext) !get
+    { ufork -> resume } ->
+        let resume' = (Proc (st -> handle resume 0 with scheduler st))
+            (Sstate q done pid pnext) = st
+            nicevalue = lookupNice pid !get
+
+            -- simple heuristic to avoid starvation, switch back to round robin if we reach min nice
+            if nicevalue - +1 <= minNice then
+                let q' = q lib.base.data.List.++ [(pid, Ready resume')]
+                    pid' = pnext
+                    pnext' = pnext + 1
+                    handle resume pid' with scheduler (Sstate q' done pid pnext')
+            else
+                put (modifyNice pnext nicevalue !get)
+                put (modifyNice pnext (nicevalue - +1) !get)
+
+                pid' = pnext
+                pnext' = pnext + 1
+
+                q' = q lib.base.data.List.++ [(pid', Ready resume')]
+                handle resume pid' with schedAging (Sstate q' done pid pnext)
+
+    { nice pid -> resume } ->
+        let (Sstate q done pid pnext) = st
+            nicevalue = lookupNice pid !get
+            handle resume nicevalue with schedAging st
+
+    { renice pid newNice -> resume} -> 
+        let resume' = (Proc (st -> handle resume () with scheduler st))
+            (Sstate q done pid pnext) = st
+            put (modifyNice pid newNice !get)
+            runNextNice (Sstate q done pid pnext) !get
+    
+    { wait pid -> resume } ->
+        let resume' = (Proc (st -> handle resume () with scheduler st))
+            (Sstate q done pid pnext) = st
+            q' = if processExists pid q then
+                     q lib.base.data.List.++ [(pid, Blocked pid resume')]
+                 else q lib.base.data.List.++ [(pid, Ready resume')]
+            runNextNice (Sstate q' done pid pnext) !get
+    { uinterrupt -> resume } ->
+        let resume' = (Proc (st -> handle resume () with scheduler st))
+            (Sstate q done pid pnext) = st
+            q' = q lib.base.data.List.++ [(pid, Ready resume')]
+            runNextNice (Sstate q' done pid pnext) !get
+
+scheduler: Sstate a e -> Request {Co, e} a ->{e} List (Nat, a)
+scheduler st request = match request with 
+    { result } -> 
+        let (Sstate q done pid pnext) = st 
+            done' = done lib.base.data.List.++ [(pid, result)]
+            runNext (Sstate q done' pid pnext)
+    { ufork -> resume } -> 
+        let resume' = (Proc (st -> handle resume 0 with scheduler st))
+            (Sstate q done pid pnext) = st
+            pid' = pnext
+            pnext' = pnext + 1
+            q' = q lib.base.data.List.++ [(pid', Ready resume')]
+            handle resume pid' with scheduler (Sstate q' done pid pnext')
+    { wait pid -> resume } -> 
+        let resume' = (Proc (st -> handle resume () with scheduler st))
+            (Sstate q done pid pnext) = st
+            q' = if processExists pid q then
+                     q lib.base.data.List.++ [(pid, Blocked pid resume')]
+                 else q lib.base.data.List.++ [(pid, Ready resume')]
+            runNext (Sstate q' done pid pnext)
+
+    { nice pid -> resume } ->
+        handle resume +0 with scheduler st
+
+    {renice pid newNice -> resume} -> 
+        handle resume () with scheduler st
+        
+    { uinterrupt -> resume } -> 
+        let resume' = (Proc (st -> handle resume () with scheduler st))
+            (Sstate q done pid pnext) = st
+            q' = q lib.base.data.List.++ [(pid, Ready resume')]
+            runNext (Sstate q' done pid pnext)
+
+processExists: Nat -> [(Nat, Pstate a e)] -> Boolean
+processExists pid processes =
+    match processes with
+        [] -> false
+        (pid', process) +: rest ->
+            if pid == pid' then true
+            else processExists pid rest
+
+timeshare2 : '{g, Co} a ->{g} List (Nat, a)
+timeshare2 m = handle !m with scheduler (Sstate [] [] 1 2)
+
+init: '{e} a ->{e, Co} ()
+init main = let pid = ufork
+                if pid == 0 then
+                    let a = main ()
+                        ()
+                else
+                    wait pid
+
+{-
+    Permissions
+    ============
+-}
+
+unique type Permission = Read | Write | AddUser | Grant | Revoke | Execute
+
+all : [Permission]
+all = [Read, Write, AddUser, Grant, Revoke, Execute]
+
+unique ability Permit 
+    where 
+        grant: Text -> Permission -> ()
+        revoke: Text -> Permission -> ()
+
+checkPermission : User -> Permission -> [(Text, [Permission])] ->{e, Error, IO, Exception} ()
+checkPermission user required perms =
+    match perms with
+        [] -> throw PermissionDenied
+        (user', perms') +: rest ->
+            if userToText user == user' then
+                if allowed required perms' then
+                    ()
+                else
+                    throw PermissionDenied
+            else checkPermission user required rest
+
+permissions: User -> Request {e, Permit, Session, FileRW, FileLU, FileCO, Co} a ->{e, Session, FileRW, FileLU, FileCO, Co, Error, State [(Text, [Permission])], IO, Exception} a
+permissions user request = 
+    match request with
+        -- Permissions 
+        {grant user' perm -> resume} -> 
+            checkPermission user Grant !get
+            existingPerms = lookupPermission user' !get 
+            newPerms = perm +: existingPerms
+            put (modifyPermission user' newPerms !get)
+            handle resume () with permissions user
+        
+        {revoke user' perm -> resume} ->
+            checkPermission user Revoke !get
+            newPerms = removePermission perm (lookupPermission user' !get)
+            put (modifyPermission user' newPerms !get)
+            handle resume () with permissions user
+
+        -- Users
+        {ask var -> resume} -> 
+            checkPermission user Read !get
+            answer = ask var
+            handle resume answer with permissions user 
+        {su user' -> resume} -> 
+            su user'
+            handle resume () with permissions (Username user')
+        {adduser user' -> resume} -> 
+            checkPermission user AddUser !get
+            adduser user'
+            handle resume () with permissions user
+        {setvar var val -> resume} -> 
+            checkPermission user Write !get
+            setvar var val
+            handle resume () with permissions user
+
+        -- Files
+        {read i -> resume} -> 
+            checkPermission user Read !get
+            text = read i
+            handle resume text with permissions user
+
+        {write (i, text) -> resume} -> 
+            checkPermission user Write !get
+            write (i, text)
+            handle resume () with permissions user
+        
+        {link (src, dest) -> resume} -> 
+            checkPermission user Write !get
+            link (src, dest)
+            handle resume () with permissions user
+        
+        {unlink name -> resume} ->
+            checkPermission user Write !get
+            unlink name
+            handle resume () with permissions user
+
+        {create name -> resume} -> 
+            checkPermission user Write !get
+            ino = create name
+            handle resume ino with permissions user
+
+        {open name -> resume} ->
+            checkPermission user Read !get
+            ino = open name
+            handle resume ino with permissions user
+
+        {ufork -> resume} ->
+            checkPermission user Execute !get
+            let pid = ufork
+                handle resume pid with permissions user
+
+        {nice pid -> resume} ->
+            checkPermission user Execute !get
+            let nicevalue = nice pid
+                handle resume nicevalue with permissions user
+
+        {renice pid newnice -> resume} ->
+            checkPermission user Execute !get
+            renice pid newnice
+            handle resume () with permissions user
+
+        {wait pid -> resume} ->
+            checkPermission user Execute !get
+            wait pid
+            handle resume () with permissions user
+
+        {uinterrupt -> resume} ->
+            checkPermission user Execute !get
+            uinterrupt
+            handle resume () with permissions user
+
+        {result} -> result
 
 lookupPermission: Text -> [(Text, [Permission])] -> [Permission]
 lookupPermission var perms =
@@ -1569,11 +3066,155 @@ permEquals perms1 perms2 =
 
 initialPermissions : [(Text, [Permission])]
 initialPermissions = [("root", all)]
+
+
+{-
+    Errors
+-}
+
+unique type EType = PermissionDenied | FileNotFound | FileExists | UserExists | NoSuchUser | UnknownError
+
+toText: EType -> Text
+toText = cases  
+    PermissionDenied -> "Permission denied"
+    FileNotFound -> "File not found"
+    FileExists -> "File exists"
+    UserExists -> "User exists"
+    NoSuchUser -> "No such user"
+    UnknownError -> "Unknown error"
+
+unique ability Error
+    where
+        throw: EType -> ()
+
+fail : Request {e, Error} a ->{e, IO, Exception, Status} Empty
+fail request =
+    match request with
+        { throw err -> resume } -> 
+            printLine (toText err)
+            exit 1
+        { result } -> exit 0
+
+warn : Request {e, Error} a ->{e, IO, Exception} a
+warn request =
+    match request with
+        { throw err -> resume } -> 
+            printLine (toText err)
+            handle resume () with warn
+        { result } -> result
+
+{-
+    Retrofitting fork
+-}
+
+nondet2 : Request {TimeSharing} a -> [a]
+nondet2 request =
+    match request with
+        { fork -> resume } -> 
+            let pid = ufork
+                handle resume (pid != 0) with nondet2
+        { result } -> [result]
+
+ {-
+     Unix
+    ======
+-}
+
+unix : '{e, BasicIO, FileRW, FileCO, FileLU, Error, Session, Permit, Co} a ->{e, IO, Exception} [(Nat, Nat)]
+unix m = handle
+            (handle 
+                (handle
+                    (handle
+                        (handle
+                        (handle
+                            (handle 
+                                (handle 
+                                    (handle
+                                        (handle 
+                                            (handle
+                                                (handle 
+                                                    (handle
+                                                        init m
+                                                    with permissions (Username "root"))
+                                                with runState initialPermissions)
+                                            with env (Username "root")) 
+                                        with runState initialUserspace)
+                                    with fileCO)
+                                with fileLU)
+                        with fileRW)
+                    with runState initialFileSystem)
+                    with interruptWrite)
+                with basicIO)
+            with warn)
+        with exitHandler)
+    with scheduler (Sstate [] [] 1 2)
+
 \end{lstlisting}
 
-\chapter{Evaluation}
+\chapter{Profiling Code}
 
-\chapter{Conclusion}
+The following code was used to profile the effect oriented and conventional
+versions of the code. The code was run with the \texttt{timers} library
+\cite{timers} and the results were recorded in section \ref{effop}.
+
+\begin{lstlisting}[language=unison]
+adduser': [User] -> User -> [User]
+adduser' store user = 
+    store :+ user
+
+su' : [User] -> User -> [User]
+su' store user = 
+    match store with
+        [] -> store
+        (u +: rest) -> 
+            let uname = userToText u
+                username = userToText user
+                if uname == username then 
+                    u +: rest 
+                else 
+                    store
+
+ask': [User] -> Text
+ask' store = 
+    match store with 
+        [] -> ""
+        (u +: rest) -> 
+            let uname = userToText u
+                uname
+
+timings _ = 
+    Timer.start "conventional"
+    internal n env = 
+        if n == 0 then 
+            []
+        else 
+            let uname = Nat.toText (!randomNat)
+                addeduser = adduser' [] (Username uname)
+                newEnv = su' addeduser (Username uname)
+                internal (n-1) newEnv
+    Timer.stop "conventional"
+
+report _ = printReport timings
+
+timings' _ = 
+    Timer.start "effectful"
+    internal n = 
+        if n == 0 then 
+            ()
+        else 
+            let uname = Nat.toText (!randomNat)
+                adduser uname 
+                su uname
+                internal (n-1)
+
+    internal 1000
+    Timer.stop "effectful"
+    
+
+timingsHandler' _ = handle (handle (handle !timings' with env (Username "root")) with runState initialUserspace) with warn
+
+report' _ = printReport timingsHandler'
+\end{lstlisting}
 
 \bibliographystyle{unsrt}
 \bibliography{diss}

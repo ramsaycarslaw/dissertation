@@ -274,4 +274,36 @@ abstract = {Publisher Summary
 Most of the computing agents with which computing science is concerned exhibit behavior that is not just the computation of a mathematical function of their inputs but rather a possibly infinite sequence of communications with their environment. The mathematics of processes promises to unify the behavioral study of computing agents, both hardware and software. This chapter describes the concepts that may be useful in modeling the behavior of intercommunicating agents, together with some examples. It is becoming clear that informal (but rigorous) proofs about communicating systems, analogous to proofs about serial programs based on the assertion technique introduced by Floyd and others, are considerably harder to express.}
 }
 
+@misc{timers,
+  author = {{@runarorama}},
+  title = {timers},
+  publisher = {Unison Share},
+  url = {https://share.unison-lang.org/@runarorama/timers},
+  doi = {https://share.unison-lang.org/@runarorama/timers},
+  version = {2.0.1},
+  date = {2024-19-03},
+}
+
+@inproceedings{Lozi2016,
+author = {Lozi, Jean-Pierre and Lepers, Baptiste and Funston, Justin and Gaud, Fabien and Qu\'{e}ma, Vivien and Fedorova, Alexandra},
+title = {The Linux scheduler: a decade of wasted cores},
+year = {2016},
+isbn = {9781450342407},
+publisher = {Association for Computing Machinery},
+address = {New York, NY, USA},
+url = {https://doi.org/10.1145/2901318.2901326},
+doi = {10.1145/2901318.2901326},
+abstract = {As a central part of resource management, the OS thread scheduler must maintain the following, simple, invariant: make sure that ready threads are scheduled on available cores. As simple as it may seem, we found that this invariant is often broken in Linux. Cores may stay idle for seconds while ready threads are waiting in runqueues. In our experiments, these performance bugs caused many-fold performance degradation for synchronization-heavy scientific applications, 13\% higher latency for kernel make, and a 14-23\% decrease in TPC-H throughput for a widely used commercial database. The main contribution of this work is the discovery and analysis of these bugs and providing the fixes. Conventional testing techniques and debugging tools are ineffective at confirming or understanding this kind of bugs, because their symptoms are often evasive. To drive our investigation, we built new tools that check for violation of the invariant online and visualize scheduling activity. They are simple, easily portable across kernel versions, and run with a negligible overhead. We believe that making these tools part of the kernel developers' tool belt can help keep this type of bug at bay.},
+booktitle = {Proceedings of the Eleventh European Conference on Computer Systems},
+articleno = {1},
+numpages = {16},
+location = {London, United Kingdom},
+series = {EuroSys '16}
+}
+
+@misc{unison-abilities,
+  url={https://www.unison-lang.org/docs/language-reference/user-defined-abilities/},
+  journal={User-defined abilities · Unison programming language},
+  publisher={Unison Computing}} 
+
 @Comment{jabref-meta: databaseType:bibtex;}
