@@ -1,7 +1,7 @@
 @Article{ritchie1978unix,
   author    = {Ritchie, Dennis M and Thompson, Ken},
   journal   = {Bell System Technical Journal},
-  title     = {The UNIX time-sharing system},
+  title     = {The {UNIX} time-sharing system},
   year      = {1978},
   number    = {6},
   pages     = {1905--1929},
@@ -275,10 +275,10 @@ Most of the computing agents with which computing science is concerned exhibit b
 }
 
 @misc{timers,
-  author = {{@runarorama}},
-  title = {timers},
+  author = {Rúnar Bjarnason},
+  title = {Unison Timers Library},
   publisher = {Unison Share},
-  url = {https://share.unison-lang.org/@runarorama/timers},
+  note = {\\ \url{https://share.unison-lang.org/@runarorama/timers}},
   doi = {https://share.unison-lang.org/@runarorama/timers},
   version = {2.0.1},
   date = {2024-19-03},
@@ -302,8 +302,54 @@ series = {EuroSys '16}
 }
 
 @misc{unison-abilities,
-  url={https://www.unison-lang.org/docs/language-reference/user-defined-abilities/},
+  author={Unison Computing},
+  note={User-defined abilities · Unison programming language \\ \url{https://www.unison-lang.org/docs/language-reference/user-defined-abilities/}},
   journal={User-defined abilities · Unison programming language},
   publisher={Unison Computing}} 
+
+@article{efficient-effects,
+author = {M\"{u}ller, Marius and Schuster, Philipp and Starup, Jonathan Lindegaard and Ostermann, Klaus and Brachth\"{a}user, Jonathan Immanuel},
+title = {From Capabilities to Regions: Enabling Efficient Compilation of Lexical Effect Handlers},
+year = {2023},
+
+issue_date = {October 2023},
+publisher = {Association for Computing Machinery},
+address = {New York, NY, USA},
+volume = {7},
+number = {OOPSLA2},
+url = {https://doi.org/10.1145/3622831},
+doi = {10.1145/3622831},
+abstract = {Effect handlers are a high-level abstraction that enables programmers to use effects in a structured  
+way. They have gained a lot of popularity within academia and subsequently also in industry. However,  
+the abstraction often comes with a significant runtime cost and there has been intensive research  
+recently on how to reduce this price.  
+
+A promising approach in this regard is to implement effect handlers using a CPS translation and  
+to provide sufficient information about the nesting of handlers. With this information the  
+CPS translation can decide how effects have to be lifted through handlers, i.e., which handlers  
+need to be skipped, in order to handle the effect at the correct place. A structured way to make  
+this information available is to use a calculus with a region system and explicit subregion  
+evidence. Such calculi, however, are quite verbose, which makes them impractical to use as a  
+source-level language.  
+
+We present a method to infer the lifting information for a calculus underlying a source-level language.  
+This calculus uses second-class capabilities for the safe use of effects. To do so, we define a typed translation  
+to a calculus with regions and evidence and we show that this lift-inference translation is typability-  
+and semantics-preserving. On the one hand, this exposes the precise relation between the second-class  
+property and the structure given by regions. On the other hand, it closes a gap in a compiler pipeline  
+enabling efficient compilation of the source-level language. We have implemented lift inference in this  
+compiler pipeline and conducted benchmarks which indicate that the approach is indeed working.},
+journal = {Proc. ACM Program. Lang.},
+month = {oct},
+articleno = {255},
+numpages = {30},
+keywords = {effect handlers, lift inference, region inference}
+}
+
+
+@inproceedings{koka2023, author = {Furudono, Naoya and Cong, Youyou and Masuhara, Hidehiko and Leijen, Daan}, title = {Towards Efficient Adjustment of Effect Rows}, year = {2023}, isbn = {978-3-031-21313-7}, publisher = {Springer-Verlag}, address = {Berlin, Heidelberg}, url = {https://doi.org/10.1007/978-3-031-21314-4_9}, doi = {10.1007/978-3-031-21314-4_9}, abstract = {Koka is a functional programming language with native support for algebraic effects and handlers. To implement effect handler operations efficiently, Koka employs a semantics where the handlers in scope are passed down to each function as an evidence vector. At runtime, these evidence vectors are adjusted using the open constructs to match the evidence for a particular function. All these adjustments can cause significant runtime overhead. In this paper, we present a novel transformation on the Koka core calculus that we call open floating. This transformation aims to float up open constructs and combine them in order to minimize the adjustments needed at runtime. Open floating improves performance by 2.5 in an experiment. Furthermore, we formalize an aspect of row-based effect typing, including the closed prefix relation on effect rows, which clarifies the constraint on open floating.}, booktitle = {Trends in Functional Programming: 23rd International Symposium, TFP 2022, Virtual Event, March 17–18, 2022, Revised Selected Papers}, pages = {169–191}, numpages = {23}, keywords = {Algebraic effect and handlers, Type and effect system, Compiler optimization} }
+
+
+@article{compilation2023, author = {Karachalias, Georgios and Koprivec, Filip and Pretnar, Matija and Schrijvers, Tom}, title = {Efficient compilation of algebraic effect handlers}, year = {2021}, issue_date = {October 2021}, publisher = {Association for Computing Machinery}, address = {New York, NY, USA}, volume = {5}, number = {OOPSLA}, url = {https://doi.org/10.1145/3485479}, doi = {10.1145/3485479}, abstract = {The popularity of algebraic effect handlers as a programming language feature for user-defined computational effects is steadily growing. Yet, even though efficient runtime representations have already been studied, most handler-based programs are still much slower than hand-written code. This paper shows that the performance gap can be drastically narrowed (in some cases even closed) by means of type-and-effect directed optimising compilation. Our approach consists of source-to-source transformations in two phases of the compilation pipeline. Firstly, elementary rewrites, aided by judicious function specialisation, exploit the explicit type and effect information of the compiler’s core language to aggressively reduce handler applications. Secondly, after erasing the effect information further rewrites in the backend of the compiler emit tight code. This work comes with a practical implementation: an optimising compiler from Eff, an ML style language with algebraic effect handlers, to OCaml. Experimental evaluation with this implementation demonstrates that in a number of benchmarks, our approach eliminates much of the overhead of handlers, outperforms capability-passing style compilation and yields competitive performance compared to hand-written OCaml code as well Multicore OCaml’s dedicated runtime support.}, journal = {Proc. ACM Program. Lang.}, month = {oct}, articleno = {102}, numpages = {28}, keywords = {OCaml, algebraic effect handlers, optimising compilation} }
 
 @Comment{jabref-meta: databaseType:bibtex;}

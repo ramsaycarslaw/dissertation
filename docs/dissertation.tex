@@ -10,6 +10,7 @@
 \usepackage{tcolorbox}
 \usepackage{subcaption}
 \usepackage{booktabs}
+\usepackage{float}
 
 \definecolor{codegreen}{rgb}{0,0.6,0}
 \definecolor{codegray}{rgb}{0.5,0.5,0.5}
@@ -87,6 +88,31 @@
 
 \date{\today}
 
+\abstract{
+  Algebraic effect handlers first outlined by Plotkin and Prenar allow for a
+  computation to be split into and effect signature and an implementation in
+  the form of handler. Effect handlers allow for programs to be written in an
+  extremely modular fashion by composing multiple effect handlers or having
+  multiple handlers for one effect. This leads to programs that are written in
+  an \emph{effect-oriented} style where most the core functionality is an
+  effectful computation.
+
+  \emph{Unix} is an operating system created at AT\&T's Bell Labs in 1971 by
+  Ritchie and Kernighan. It features a file system, user space and process
+  management. It has become one of the most widely used operating systems,
+  being licensed in Apple's macOS and served as the main inspiration for Linux.
+
+  This project provides an effect-oriented implementation of Unix based on
+  Daniel Hillerstr\"{o}m's toy Unix he outlines in his p.H.D thesis. In this
+  project, Unix is implemented in Unison, a functional language with support
+  for effect handlers. This initial Unison version of Unix is then extended
+  with more advanced features such as permissions, generic users and
+  environment variables and a better scheduler. Both Unison and effect-oriented
+  programming are analysed with the Unix implementation serving as a
+  sufficiently complex program to demonstrate some of the selling points of
+  effect-oriented programming.
+}
+
 % https://okmij.org/ftp/continuations/ZFS/context-OS.pdf
 % https://dl.acm.org/doi/pdf/10.1145/800087.802786
 
@@ -105,14 +131,19 @@ from the Informatics Research Ethics committee.
 \end{ethics}
 
 \begin{acknowledgements}
-  Any acknowledgements go here.
+  I would like to thank my supervisor, Sam Lindley, who has taught me so much
+  and given up so much of his time to help with this project.
+
+  Thank you also to Daniel Hillerst\"{o}m who met with me on several occasions
+  to help me understand both his own work and errors in my code.
+
+  Finally, thank you to my family, Kor\'{e} and Alex for their support and
+  listening to me talk about this project far too often.
 \end{acknowledgements}
 
 \tableofcontents
 
 \end{preliminary}
-
-\part{Project}
 
 \chapter{Introduction}
 
@@ -141,10 +172,11 @@ programming language with first class support for effect handlers.
 
 While the primary goal is to implement a Unix-like operating system in Unison,
 the project also aims to compare the effect oriented programming style to
-traditional programming styles. The project will also aim to provide a
+traditional programming styles. In doing so, we will also aim to provide a
 commentary on the performance of effect handlers in Unison. The goal is not to
 write a real operating system but to demonstrate that effect handlers can be
-the right choice for complex programming tasks. 
+the right choice for complex programming tasks. As such metrics like
+performance and scalability are of secondary concern.
 
 \section{Objectives}
 
@@ -198,12 +230,12 @@ return type otherwise known as the \emph{effect operation}.  For example, we
 might define the effect signature \emph{State} that stores state for some type
 \texttt{a}. In order to make use of our \emph{State} effect we can define the
 effect operations \emph{put} and \emph{get} where put will update the value of
-type \texttt{a} stored in state and get will return the current value.  At this
+type \texttt{a} stored in \emph{State} and \emph{get} will return the current value.  At this
 stage the effect operation has no implementation and is more an acknowledgement
 to the compiler that it should expect an implementation. For this reason any
 function that references these effect operations is known as an \emph{effectful
 function} or a function whose definition is not complete without an effect
-handler. In the put and get example, any function that uses put and get to store
+handler. In the \emph{put} and \emph{get} example, any function that uses put and get to store
 values would be an effectful function. The \emph{effect handler} provides one
 implementation of the given effect operation. We could define a simple handler
 for state that simply updates a variable of the given type or we could define a
@@ -213,14 +245,14 @@ an alternative implementation to the effect. Crucially, we can have multiple
 handlers defined in the same program for one effect allowing for much more
 modular programming or \emph{effect-oreinted programming}.
 
-When are programs rely on input from the real world like connecting to a server
-on the internet or getting input from a user, it is no longer safe to assume
-this input will be passed as we expect. For example, the server could time out
-or not be at the address the program is expecting it to be at or the user could
-enter a string that is too long for the input. These real world uncertainties
-are known as \emph{Side Effects}. Effect handlers can be used to provide
-alternate implementations of functions that may have side effects and allow for
-control flow with these effects.
+%When are programs rely on input from the real world like connecting to a server
+%on the internet or getting input from a user, it is no longer safe to assume
+%this input will be passed as we expect. For example, the server could time out
+%or not be at the address the program is expecting it to be at or the user could
+%enter a string that is too long for the input. These real world uncertainties
+%are known as \emph{Side Effects}. Effect handlers can be used to provide
+%alternate implementations of functions that may have side effects and allow for
+%control flow with these effects.
 
 \subsection{Example in Unison}
 \label{subsection:unison}
@@ -232,39 +264,41 @@ handlers through it's abilities system.
 Unison provides the \emph{ability} keyword which allows users to define their own
 effects. It also provides the \emph{handle ... with ...} pattern to attach handlers to effectful functions.
 
-\begin{lstlisting}[caption={The \emph{put} and \emph{store} example in Unison. Note that the \emph{structural} keyword refers to the fact that Unison stores type definitions as a hash. Even if we changed all the variable names it would still view it as the same type. To avoid that behaviour you can swap the \emph{structural} keyword for \emph{unique}}]
-structural ability Store a where
-  put: a -> {Store a} ()
-  get: {Store a} a
+\begin{lstlisting}[caption={The \emph{put} and \emph{get} example in Unison. Note that the \emph{structural} keyword refers to the fact that Unison stores type definitions as a hash. Even if we changed all the variable names it would still view it as the same type. To avoid that behaviour you can swap the \emph{structural} keyword for \emph{unique}}]
+structural ability State a 
+  where
+    put: a -> {State a} ()
+    get: {State a} a
 \end{lstlisting}
 
 This defines the two effect operations \texttt{put} and \texttt{get} that have
-the effect signature \texttt{Store a}. Put takes a value of type \texttt{a} and
-returns the unit type \texttt{()}. The prefix of \texttt{\{Store a\}} to the
+the effect signature \texttt{State a}. Put takes a value of type \texttt{a} and
+returns the unit type \texttt{()}. The prefix of \texttt{\{State a\}} to the
 \texttt{()}, refers to the fact that in order to allow for \texttt{put} to
 return, it must be run from an effectful function that is handled with an
-appropriate handler for \texttt{Store a}. Similarly, \texttt{put} takes an
-argument of type \texttt{a} and must be handled.
+appropriate handler for \texttt{State a}, the need for this is discussed later
+in more detail. Similarly, \texttt{put} takes an argument of type \texttt{a}
+and must be handled.
 
-\begin{lstlisting}[language=unison, caption={An example of an effectful function that uses the \texttt{Store} effect}]
-addStore : a -> {Store a} ()
+\begin{lstlisting}[language=unison, caption={An example of an effectful function that uses the \texttt{State} effect}]
+addStore : Nat -> {State Nat} ()
 addStore x =
-  y = get
+  y = get ()
   put (x + y)
 \end{lstlisting}
 \label{listing:addstore}
 
-The code in listing \ref{listing:addstore} is an example of how you would use
-the effects in Unison. It takes an argument of type \texttt{a} and `adds' it to
-the current value by using \texttt{get}. Note that in order for this to work the
-infix operation `+' must be implemented for type \texttt{a}. Now we only need to
-define the handler.
+The code in Listing 2.2 is an example of how you would use the effects in
+Unison. It takes an argument of type \texttt{Nat} and adds it to the current
+value by using \texttt{get}. Note that we specify in the braces in the type
+signature that we are using a \texttt{State} effect that operates on
+\texttt{Nat}s or natural numbers.
 
-\begin{lstlisting}[caption={The handler for the \texttt{Store} effect}]
-    storeHandler : a -> Request (Store a) a -> a
-    storeHandler value = cases
-        {Store.get -> resume} -> handle resume value with storeHandler value
-        {Store.put v -> resume} handle resume () with storeHandler v
+\begin{lstlisting}[caption={The handler for the \texttt{State} effect}]
+    runState : a -> Request {Store a} a -> a
+    runState value = cases
+        {Store.get -> resume} -> handle resume value with runState value
+        {Store.put v -> resume} handle resume () with runState v
         {result} -> result
 
 \end{lstlisting}
@@ -282,14 +316,11 @@ handle (addStore 10) with storeHandler 10
 Finally, we can put it all together by calling the function \texttt{addStore}
 with the handler \texttt{storeHandler}. 
 
-\section{Affine and `Multi-Shot' Handlers}
-
-If remaining computation or continuation of an effect can be resumed once from
-a handler then the effect system implements \emph{one-shot} or \emph{affine}
-effect handlers. If it is able to resume the computation multiple times then it
-is a \emph{multi-shot} handler. 
 
 \section{The State of Effect-Oriented Programming}
+
+There are many implementations of effect handlers, some are implemented as
+libraries and some are built into the language as first class operators.
 
 \subsection{Library Based Effects}
 
@@ -327,7 +358,7 @@ however.}
 \subsection{First-Class Effects}
 
 \begin{itemize}
-        \item{Unison is shown in more detail in section \ref{subsection:unison}}
+        \item{Unison is shown in more detail in Section \ref{subsection:unison}}
         \item{Koka \cite{DBLP:journals/corr/Leijen14} is a statically typed
 functional language with effect types and handlers. It can also compile
 straight to C code without needing a garbage collector. Koka is developed by a
@@ -352,8 +383,16 @@ handler to be invoked again as the handlers receive themselves as an argument.
 Shallow handlers do not pass the handler with the computation. There are also
 \emph{sheep handlers}, which while being shallow implement some of the
 behaviour of deep handlers leading to the name sheep or shallow + deep. In
-practice, the type of handler is more of an implementation detail although it
-can have an effect on how code is structured.
+practice, the type of handler is more of an implementation detail, to the
+programmer it mostly just effects how code is structured and leads to different
+patterns.
+
+\section{Affine and `Multi-Shot' Handlers}
+
+If remaining computation or continuation of an effect can be resumed once from
+a handler then the effect system implements \emph{one-shot} or \emph{affine}
+effect handlers. If it is able to resume the computation multiple times then it
+is a \emph{multi-shot} handler. 
 
 \section{\textsc{UNIX}}
 
@@ -361,7 +400,7 @@ can have an effect on how code is structured.
 implemented by Dennis M. Ritchie and Ken Thompson at AT\&T's Bell Labs in 1974.
 It provides a file system (directories, file protection etc.), a shell,
 processes (pipe, fork etc) and a userspace. Since it's first release it has been
-reimplemented for a variety of systems.
+reimplemented for a variety of systems such as macOS. It also heavily inspired GNU/Linux.
 
 \subsection{The UNIX Philosophy}
 
@@ -370,7 +409,7 @@ A phrase often associated with \textsc{Unix} is the \emph{Unix philosophy}.  The
 developed. The core principles involve composing many small simple programs that
 accomplish one task well to solve more complex tasks \cite{raymond2003art}. The
 idea of many small modular components has spread to many areas of computer
-science including effect oriented programming.
+science.
 
 \section{Effect Based File Systems}
 
@@ -385,16 +424,14 @@ file systems can be built around continuations.
 
 In chapter 2 of his 2022 thesis, Daniel Hillerstr\"{o}m
 \cite{hillerstrom2022foundations} outlines a theoretical implementation of UNIX
-using the effects syntax outlined by Kammar et. al. \cite{kammar2013handlers}.
-In this he provides an implementation of the original \textsc{Unix} paper
-\cite{ritchie1978unix} that includes a filesystem and timesharing.
-Hillerstr\"{o}m makes several assumptions about the effect system that would
-need to be taken into account in order to implement this with a real language.
-The main assumption is multi-shot handlers. For example the implementation of
-\texttt{fork} uses multi-shot handlers to copy the full stack on both branches.
-There are also some partial implementations such as \texttt{sed} \footnote{It is
-worth mentioning \texttt{sed} has $20,000+$ lines of code} from which he only
-implements string replacement.
+using an original calculus syntax. In this he provides an implementation of the
+original \textsc{Unix} paper \cite{ritchie1978unix} that includes a filesystem
+and timesharing. Hillerstr\"{o}m makes several assumptions about the effect
+system that would need to be taken into account in order to implement this with
+a real language. For example, he uses Kammar et. al \cite{kammar2013handlers}
+style deep handlers for most sections, however he also makes use of shallow
+handlers and parametrised handlers. In most effect handler implementations you
+are limited to just one type of handler.
 
 \chapter{Base Implementation}
 \label{baseimplementation}
@@ -414,8 +451,10 @@ In \texttt{Unix} programs must provide a code when they exit (usually 0 for
 success and anything else for failure). The effect signature \texttt{Status}
 provides the \texttt{exit} operation which takes one argument of type
 \texttt{Nat} \footnote{a positive integer in Unison} and returns the empty type
-which is defined \texttt{unique type Empty =}. The argument represents the
-return code.
+which is defined \texttt{unique type Empty =}. Given the empty type has no
+implementation it has the effect of terminating the program wherever it is
+returned by \texttt{exit}, therefore exiting.The argument represents the return
+code.
 
 \begin{lstlisting}[language=unison]
 unique ability Status
@@ -454,14 +493,16 @@ exitHandler : Request {e, Status} x -> Nat
 exitHandler request =
     match request with
           { result } -> 0
-          { exit v -> resume } -> abort
+          { exit v -> resume } -> v
 \end{lstlisting}
 
 The implementation for exit has no effect it simply consumes the exit code and
 returns. The handler however returns a \texttt{Nat} return code. If an exit
 operation is encountered we return the value given to the exit operation. The
 return case simply returns 0 as if we reach the end of a function being handled
-by the handler then we can assume it was successful and return 0.
+by the handler then we can assume it was successful and return 0. This means
+that even though the program is terminated with the empty type, we will still
+have access to the return code of the program through the handlers return type.
 
 
 \subsection{The Request Type}
@@ -557,13 +598,12 @@ effect of this is best shown by running it side by side with \texttt{basicIO}
 on the following program.
 
 \begin{lstlisting}[language=unison]
-helloworld _ = echo "Hello,"; echo " World!\\n"
+helloworld _ = echo "Hello,"; echo " World!\n"
 \end{lstlisting}
 
 The output of running this program with each handler is shown in Figure \ref{fig:sidebyside}.
 
 \begin{figure}[h]
-  \label{fig:sidebyside}
 \begin{minipage}{0.5\textwidth}
 
 \begin{lstlisting}[style=terminal]
@@ -586,34 +626,10 @@ Hello,
 \end{lstlisting}
 \end{minipage}
 \caption{The output of running \texttt{helloworld} with each handler.}
+  \label{fig:sidebyside}
 \end{figure}
 
-\section{A Unix Function}
-
-When we start composing handlers like in Program \hyperref[prog:helloworld]{1}
-the \texttt{handle (handle (...) with ... ) with ...)} syntax can start to get
-verbose. To solve this we will introduce one \textsc{Unix} function where we
-compose all the handlers that takes a function using the operations we have
-defined as an argument.
-
-\begin{lstlisting}[language=unison]
-unix : (() ->{e, BasicIO, Status} a) ->{e, IO, Exception} Nat
-unix prog = handle (handle !prog with basicIO) with exitHandler
-\end{lstlisting}
-
-We accept a function as an argument that needs both \texttt{Status} and
-\texttt{BasicIO} to be handled in order to be run. We then apply the handlers
-to the function and run it. We handle status last as this gives us \texttt{Nat}
-as a return code which the whole function can return. We can now run
-\texttt{unix helloworld} to get the following:
-
-\begin{lstlisting}[language=unison]
-  Hello, World!
-
-    0
-\end{lstlisting}
-
-We now get the 0 return code as the result of the computation, indicating it was successful.
+By handling the resumption first `World' is printed first.
 
 \section{Users and Environment}
 \label{userspace}
@@ -668,7 +684,7 @@ that information:
   \texttt{unix} function.
 
   \begin{lstlisting}[language=unison]
-    runsession _ = unix session
+    runsession _ = handle (handle (handle (session) with env Root) with basicIO) with exitHandler
   \end{lstlisting}
 
   \begin{lstlisting}[style=terminal]
@@ -714,18 +730,14 @@ In this way the environment is the handler itself as it contains the
 information such as which user is logged in. The handler can be extended to
 have parameterised environment variables making it the complete environment.
 
-\subsection{Adding the Handler to the Unix Function}
+\subsection{Remark on Handlers as State}
 
-Given the \texttt{unix} function represents the initial state of the system we
-choose the root user to be logged in by passing it as an argument to the
-handler as well as composing it with the other two.
-
-\begin{lstlisting}[language=unison]
-unix : '{e, Session, BasicIO, Status} a ->{e, IO, Exception} Nat
-unix prog = handle (handle (handle !prog with basicIO) with env Root) with exitHandler
-\end{lstlisting}
-
-We still leave the \texttt{exitHandler} on the outside to get the return code.
+In this example, the handler replaces an algebraic datatype as state. When the
+user is substituted the handler handles the remaining computation with with the
+newly logged in user as an argument to itself. In this way the state only needs
+to be set when the handler is initially called i.e. \texttt{handle ... with env
+Root} and it is automatically managed for the whole program. This is discussed
+more in Section \ref{effop}.
 
 \section{Nondeterminism}
 
@@ -751,7 +763,7 @@ else
   echo "Tails\n"
 \end{lstlisting}
 
-By running that code with the \texttt{unix} function we get:
+By running that code with the handler for \texttt{fork} we expect to get:
 
 \begin{lstlisting}[style=terminal]
   Heads
@@ -760,7 +772,7 @@ By running that code with the \texttt{unix} function we get:
     0
 \end{lstlisting}
 
-The handler for fork is also fairly simple:
+The handler for fork is fairly simple:
 
 \begin{lstlisting}[language=unison]
 nondet : Request {TimeSharing} a -> [a]
@@ -776,11 +788,13 @@ with the values true and false and join the two lists that are created. The
 return case wraps the value in a list so that we can use the \texttt{++}
 operator.
 
-\subsection{Joining Lists in Unison}
+\subsection{Remark on Joining Lists in Unison}
+\label{sec:remarklists}
 
 Unison's typechecker sometimes struggles inferring the type of \texttt{++}. For
 this reason we include the full path to the standard library where \texttt{++}
-is defined i.e. \texttt{lib.base.data.List.++}.
+is defined i.e. \texttt{lib.base.data.List.++}. This is discussed more in
+Section \ref{sec:typechecker}.
 
 \section{Scheduling}
 
@@ -833,9 +847,9 @@ reifyProcess request =
 
 In the case of an interrupt, the handler suspends the computation by making it
 an anonymous function with a unit type as it's first argument, and wrapping it
-in the paused datatype. This means we can run the \texttt{Paused} computations
-later by invoking that function we created. The return case simply wraps the
-value in the \texttt{Done} type. 
+in the \texttt{Paused} datatype. This means we can run the \texttt{Paused}
+computations later by invoking that function we created. The return case simply
+wraps the value in the \texttt{Done} type. 
 
 \begin{lstlisting}[language=unison]
 sched : [PState a {e, TimeSharing}] -> [a] ->{e} [a]
@@ -845,9 +859,14 @@ sched ps done =
         (Done res) +: ps' -> sched ps' (res lib.base.data.List.+: done)
         (Paused m) +: ps' -> sched (ps' lib.base.data.List.++ (handle !m with nondet)) done
 
-timeshare : '{g, Interrupt, TimeSharing} o ->{g} [o]
+timeshare : '{e, Interrupt, TimeSharing} a ->{e} [a]
 timeshare m = sched [Paused (_ -> handle !m with reifyProcess)] []
 \end{lstlisting}
+
+The \texttt{timeshare} function can be wrapped around a computation and will
+schedule set the first process as \texttt{Paused}. This can we wrapped around
+any function that uses \texttt{interrupt} or \texttt{fork} to handle them
+correctly.
 
 \section{Serial File System}
 \label{sec:filesystem}
@@ -898,7 +917,7 @@ Finally, the \texttt{FileSystem} type collects the above types into lists along 
 \subsection{Initial File System}
 
 Much like \texttt{Root} is the initial user, we introduce an initial file
-system by initialising the types in section \ref{sec:filesystemtypes}. We
+system by initialising the types in Section \ref{sec:filesystemtypes}. We
 create the file \texttt{stdout} to represent the standard output file at
 I-number 0.
 
@@ -962,6 +981,9 @@ unique ability FileLU
         unlink: Text -> ()
 \end{lstlisting}
 
+\textbf{link} --- Links two files such that changes to one happen to the other by making their I-Nodes point to the same data region.
+
+\textbf{unlink} --- Undoes the effect of link by making the two files have separate data regions again.
 
 \begin{tcolorbox}[colback=gray!10, colframe=black, arc=0pt, outer arc=0pt]
   \section*{Program 3 -- \texttt{mv}}
@@ -1069,7 +1091,7 @@ fileLU result =
 
 In \textsc{Unix}, a pipe is essentially syntactic sugar for connecting the input
 and output of two files. Given the simple nature of the file-system described
-in section \ref{sec:filesystem}, and the lack of true \texttt{stdout} and
+in Section \ref{sec:filesystem}, and the lack of true \texttt{stdout} and
 \texttt{stdin} files, pipes are represented as effect operations that are
 connected via handlers.
 
@@ -1386,7 +1408,7 @@ information and use it in control flow.
 
 \subsection{Getting and Setting Environment Variables}
 
-In the implementation detailed in section \ref{userspace} the operation
+In the implementation detailed in Section \ref{userspace} the operation
 \texttt{ask} may only ever return the name of the current user. Instead of
 \texttt{ask} having the type \texttt{() -> Text} it now takes an argument of
 type \texttt{Text} which represents the name of the environment variable it
@@ -1422,7 +1444,7 @@ global data structure would have to be introduced. Since this implementation
 uses effect handlers the \texttt{State} handler used in the filesystem can be
 added to the type signature of \texttt{env} as an effect variable meaning the
 arguments to \texttt{env} do not change and no additional data structures need
-be implemented. This is discussed more in section \ref{effop}.
+be implemented. This is discussed more in Section \ref{effop}.
 
 \subsection{Updated Environment Handler}
 
@@ -1467,7 +1489,7 @@ the hard-coded \texttt{Text} version of the user.  In the general case it uses
 lookup functions that navigate the environment variables data structure and
 return the correct value for the correct user. This mix of hard coded and user
 defined environment variables is caused by the hard coded users, and is fixed
-in the next section, section \ref{genericusers}.
+in the next section, Section \ref{genericusers}.
 
 Another interesting feature is the case where a program requests the value of
 an environment variable that is not set. \textsc{Unix} will return an empty
@@ -1695,7 +1717,7 @@ within the match statement. This is discussed further in section
 
 \section{An Alternate Scheduler}
 
-The scheduler in section \ref{extensions} is a simple round-robin scheduler
+The scheduler in Section \ref{extensions} is a simple round-robin scheduler
 while not dissimilar to \textsc{Unix}'s multilevel feedback queue round robin
 scheduler it is much more simplistic. Even in widely used systems like Linux
 which switches between multiple algorithms, scheduling remains very much
@@ -1703,7 +1725,7 @@ unsolved \cite{Lozi2016}.
 
 To improve the scheduler we introduce the concept of priority levels through a
 nice value. In Linux, nice values range from -20 to 19 with -20 being the
-highest priority. Each process has a nice value associated with it that the
+lowest priority. Each process has a nice value associated with it that the
 user can manually change to increase or decrease the priority of a process. 
 
 \subsection{Effect Signature}
@@ -1762,6 +1784,7 @@ If there is it runs that instead. The Blocked branch is unreachable as
 put there to satisfy the typechecker.
 
 \subsection{An Aging Scheduler}
+\label{aging}
 
 An aging scheduler is a type of scheduler that increases the priority of a
 process the longer it has been waiting. This is done to prevent starvation of
@@ -1825,6 +1848,13 @@ unlikely to run even if we adjust the nice. To save on the extra computation of
 handling nice values we can switch back to the round robin scheduler just by
 handling the same state with the old handler.
 
+\subsection{Remark on Switching Handlers}
+
+Although the two schedulers are not too different they still handle the queue
+differently. We can define as many schedulers as we like (as long as they
+operate on the same types) and seamless switch between them by handling
+resumptions differently. This is discussed more in Section \ref{effop}.
+
 \chapter{Evaluation and Discussion}
 
 \section{Unison}
@@ -1832,10 +1862,22 @@ handling the same state with the old handler.
 The following section details some of the quirks and missing features of the Unison
 effect systsem that were encountered during the implementation of \textsc{Unix}.
 
+\subsection{Typechecker}
+\label{sec:typechecker}
+
+As mentioned in Section \ref{sec:remarklists}, the Unison typechecker could not
+infer that \texttt{resume true/false} was going to return a type of
+\texttt{[a]} despite their being a type signature to this effect. This forces
+the programmer to use the fully qualified \texttt{lib.base.data.List.++}
+instead of just \texttt{++}. This hurts the readability of the code and makes
+it more irksome to program with as you don't know which types it can infer and
+which it can't. This seems like an issue that shouldn't arise in a modern
+functional language.
+
 \subsection{Multihandler Pattern Matching}
 \label{multihandler}
 
-If we consider a handler, like the one in section \ref{permissions} for
+If we consider a handler, like the one in Section \ref{permissions} for
 permissions, that handles multiple effects, it would be useful to be able to
 pattern match on the effect signature or across multiple operations and invoke
 them once.
@@ -1958,7 +2000,6 @@ being handled the user can ignore the state as it is hidden from them.
 
 
 \begin{figure}[h]
-  \label{fig:seqvshandler}
 \begin{minipage}{0.5\textwidth}
 
 \begin{lstlisting}[style=terminal]
@@ -1987,11 +2028,12 @@ createAndSwitch user =
 \end{lstlisting}
 \end{minipage}
 \caption{Effect oriented version (\emph{left}) and the standard version (\emph{right})}
+  \label{fig:seqvshandler}
 \end{figure}
 
 \subsection{Modularity}
 
-The comparison in Listing \ref{fig:seqvshandler} shows that although both versions require initial state,
+The comparison in Figure \ref{fig:seqvshandler} shows that although both versions require initial state,
 the power of effect handlers allow us to keep the implementation separate from
 the use and as such there is no requirement for the function to manage the state of
 users. As long as the program is run within scope of the handler all operations
@@ -2028,14 +2070,25 @@ the operations must be modified to give them values of the new type. The effect
 oriented one simply adds a handle statement and once again leaves the type
 signatures of the operations unchanged.
 
+Another example of composing handlers is in the scheduler outlined in Section
+\ref{aging}. We could develop different scheduling algorithms that are
+completely isolated from one and other but still easily switch between them
+just by handling their resumptions with a different algorithm. You could use
+heuristics to determine which is the best scheduler to use at that moment. To
+implement this in a conventional way it would require at the very least some
+shared queue structure (or lots of copying data) and lots of boilerplate to
+switch between them. In the effect-oriented version we can simply
+\texttt{handle ... with otherAlgorithm}.
+
 \subsection{Performance}
 
-Unfortunately, in Unison there is an enormous performace impact caused by using
-abilities. Using the timers micro-benchmarking library \cite{timers}, I ran code
-that created a user with a random name, and switched to that user. It then
-repeated this action 1000 times and recorded the results.
+While performance was not the focus of this project, I was still interested in
+observing the tradeoffs between the two implementations provided in Section
+\ref{effop}. Using the Unison Timers library \cite{timers} I ran code that
+created and switched to a random user 1000 times. The results are shown in
+Table \ref{tab:label_comparison}. 
 
-\begin{table}[htbp]
+\begin{table}[H]
     \centering
     \begin{tabular}{lcc}
         \toprule
@@ -2060,12 +2113,9 @@ repeated this action 1000 times and recorded the results.
     \label{tab:label_comparison}
   \end{table}
 
-  The results are clear -- the effect oriented version is orders of magnitude
-slower. Even accounting for the fact it has extra overhead for error handling
-and environment variables it is still far slower. This may be due to the
-compiler being better optimised for purely functional applications and it would
-be interesting to see how the effects are implemented in Unison for this reason.
-
+The poor performance of the effect oriented version is not surprising. In most
+effect implementations layering effect handlers leads to poor performance
+although there is work focused on improving the performance in these cases \cite{efficient-effects} \cite{koka2023} \cite{compilation2023}.
 
 \chapter{Conclusion and Future Work}
 
@@ -2073,15 +2123,19 @@ be interesting to see how the effects are implemented in Unison for this reason.
 
 \subsection{Summary}
 
-The basic implementation of Unix was a success as every feature outlined by 
-Hillerstr\"{o}m was implemented in Unison. 
+The section demonstrates a Unison implmentation of Hillerstr\"{o}m's
+\textsc{Unix} and provides several programs that give examples of composing
+handlers to implement more of \textsc{Unix}. I provide Unison implementations
+for status, basic I/O, users, a basic serial filesystem, pipes and two methods
+of timesharing. The programs build on top of these handlers to create
+additional \textsc{Unix} programs like \texttt{cat}.
 
 \subsection{Future Work}
 
 \emph{\textbf{Shell}} A logical extension to this project would be creating a shell like \texttt{bash}
 or similar to allow users to run the commands in a more real-time way. Writing a
 shell would be mostly implementing the parser which is usually unrelated to
-effect oreinted programming which is why it was omitted from this project.  It
+effect-oriented programming which is why it was omitted from this project.  It
 may also be interesting to see if parsers can be written in an effect oriented
 style and if there is any benefit to this approach.
 
@@ -2094,11 +2148,13 @@ direct comparison of the two languages and their effect systems.
 
 \subsection{Summary}
 
-While the extension was successful in that new features were added, not all of them 
-were as polished as the base implementation. The permissions system was a success
-and a good example of using a multihandler as state. The scheduler was less successful
-as it was unlikely to actually improve the performance of the system and was more
-of a demonstration of how effect handlers can be used to implement complex systems.
+This section introduces improvements to the userspace through generic
+user's and environment variables. Both of these features leverage the
+\texttt{State} effect and demonstrate how effect handlers can be composed to
+create new features. We also introduce a scheduler that demonstrates how
+different handlers can be used to achieve more advanced control flow. This
+creates the final version of Unix which can now be used as a test platform for
+analysis.
 
 \subsection{Future Work}
 
@@ -2107,27 +2163,34 @@ provide some more advanced examples of effect handlers. This would involve
 parsing regular expressions from the pipe command and then matching based on 
 the regular expression.
 
-\emph{\textbf{Linux}} Another interesting project would be attaching effect handlers to Linux. This could be done through a kernel module and then used for other applications like writing another scheduling algorithm or making the filesystem closer to the one outlined in \cite{DBLP:conf/context/KiselyovS07}. The scope of the project would have to be reduced to the complexity and size of linux. It would also be a good opportunity to explore performant effects.
+\emph{\textbf{Linux}} Another interesting but extremly difficult project would
+be attaching effect handlers to Linux. This could be done through a kernel
+module and then used for other applications like writing another scheduling
+algorithm or making the filesystem closer to the one outlined by Kiselyov
+\cite{DBLP:conf/context/KiselyovS07}. The scope of the project would have to be
+reduced due to the complexity and size of Linux. It would also be a good
+opportunity to explore performant effects.
 
 \section{Evaluation}
 
 \subsection{Summary}
 
-It is hard to say if effect oriented programming is better or worse than
-conventional programming. The performance impact of using effects can be
-considerable but the syntax can be much more concise and modular. For this
-reason we are more outlining differences and areas were the effect handlers are
-probably better (i.e. their modularity and composing them) and some pain points
-like performance that exist in the Unison implementation. We also suggest some
-potential improvements to the Unison effect system that would make it better
-equipped for multihandlers.
+This section describes some desirable features the Unison team could consider
+adding and the rationale behind adding them. It also outlines and addresses
+some of the quirks that were encountered and referenced during the
+implementation. It also addresses effect-oriented programming as a concept by
+comparing the Unix implementation to a more conventional implementation. This
+demonstrates the effect-oriented versions superior modularity and the unique
+ability to compose effects to create new features. The performance of the two
+is also shown, despite this not being an aim of the project, it is always
+interesting to compare.
 
 \subsection{Future Work}
 
-\emph{\textbf{Performance}} The performance of any technology is a major
-consideration in it's adoption by industry. It would be useful to do more
-thorough profiling of the Unison compiler to see where the performance
-bottlenecks are and if they can be improved.
+\emph{\textbf{Performance}} As was mentioned before, there is lots of research
+concerned with improving the performance of effect handlers. A useful extension
+would be attempting to apply these techniques to Unison to see if the
+performance could be improved.
 
 \emph{\textbf{Comparison with a more traditional implementation}} Although this 
 was partly covered in the evaluation section it would be interesting to see how
@@ -2135,28 +2198,635 @@ the effect oriented version of Unix compares to a more traditional version in
 a more complete and thorough way. This would involve implementing the same
 features without the use of effect handlers and comparing them.
 
-\section{Final Thoughts}
-
-The Unison effect system is as powerful and expressive as any other effect
-system. It is capable of writing complex effect oriented programs like Unix and 
-despite some performance issues it is a very promising language. Overall, this project 
-has achieved it's goals and has provided a demonstration of the power of effect
-oriented programming. While it is not perfect it is a good starting point for future
-work in this area.
-The Unix implementation created could serve as good platform for further
-development and exploration of effect oriented programming. More features 
-can always be added and the system can be made more robust and efficient.
-
-To conclude, the effect oriented programming is here to stay and it is likely
-that it will become more popular as more languages like Unison adopt it. 
-
-\part{Appendices}
+\appendix
 
 \chapter{Final State of the Code}
 
 \section{Base Implementation}
 
 \begin{lstlisting}[language=unison]
+
+unique ability BasicIO
+    where
+        echo: Text -> ()
+
+basicIO : Request {BasicIO} a ->{IO, Exception} a
+basicIO result =
+    match result with
+        { echo text -> resume } -> putText stdOut text; handle resume () with basicIO
+        { result } -> result
+
+
+{-
+    Status
+    =========
+-}
+
+unique type Empty = 
+
+-- The unix exit command that allows you to exit with error code
+unique ability Status
+       where
+            exit: Nat -> Empty
+
+-- handles the exit command which just returns an integer
+exitHandler : Request {g, Status} a -> Nat
+exitHandler request =
+    match request with
+          { result } -> 0
+          { exit v -> resume } -> v
+
+{-
+Userspace
+==========
+
+This handles the hard coded users and their environments.
+It allows for whoami and su commands to be run.
+
+-}
+
+-- The users (hard coded)
+unique type User = Alice | Bob | Root
+structural type Environment = Environment User
+
+-- Each user has a unique environment
+environments : List (User, Environment)
+environments = [(Alice, Environment Alice),
+                (Bob, Environment Bob),
+                (Root, Environment Root)]
+
+unique ability Session
+    where
+        su: User -> {Session } Environment
+
+-- Helper function because unison cannot infer equity on custom types
+userEquals: User -> User -> Boolean
+userEquals user1 user2 =
+    match user1 with
+        Alice -> match user2 with
+            Alice -> true
+            _ -> false
+        Bob -> match user2 with
+            Bob -> true
+            _ -> false
+        Root -> match user2 with
+            Root -> true
+            _ -> false
+
+whoami: '{Session} Text
+whoami _ = ask ()
+ 
+env: User -> Request {Session} a -> a env user request =
+  match request with
+    {result} -> result
+    { ask () -> resume } -> match user with
+      Alice -> handle resume "alice" with env user
+      Bob -> handle resume "bob" with env user 
+      Root -> handle resume "root" with env user
+  
+{-
+      Time Sharing
+   ==================
+-}
+
+unique ability Interrupt
+    where
+        interrupt: {Interrupt } ()
+
+
+-- unique type PState a = Done a | Paused (Unit ->{Interrupt} a)
+unique type PState a e = Done a | Paused ('{e} PState a e)
+
+interruptWrite result =
+    match result with
+        { echo text -> resume } -> 
+            interrupt
+            echo text 
+            handle resume () with interruptWrite
+        { result } -> ()
+
+--reifyProcess : Request {Interrupt} a -> PState a e
+--reifyProcess request =
+--    match request with
+--        { interrupt -> resume } -> ( handle resume with reifyProcess )
+--        { result } -> Done result
+
+
+reifyProcess request =
+    match request with
+        { interrupt -> resume } -> Paused (_ -> handle !resume with reifyProcess )
+        { result } -> Done result
+
+unique ability TimeSharing
+    where
+        fork: {TimeSharing } Boolean
+
+-- handler for time sharing ability
+nondet : Request {TimeSharing} a -> [a]
+nondet request =
+    match request with
+        { fork -> resume } -> (handle resume true with nondet) lib.base.data.List.++ (handle resume false with nondet)
+        { result } -> [result]
+
+sched : [PState a {e, TimeSharing}] -> [a] ->{e} [a]
+sched ps done = 
+    match ps with
+        [] -> done
+        (Done res) +: ps' -> sched ps' (res lib.base.data.List.+: done)
+        (Paused m) +: ps' -> sched (ps' lib.base.data.List.++ (handle !m with nondet)) done
+
+--schedule : [PState a {e, TimeSharing}] ->{e} [a]
+--schedule processes =
+--    sched processes []
+
+timeshare : '{g, Interrupt, TimeSharing} o ->{g} [o]
+timeshare m = sched [Paused (_ -> handle !m with reifyProcess)] []
+
+{-
+  Serial File System
+  ==================
+-}
+
+unique ability State a
+       where
+            put: a -> ()
+            get: () -> a
+
+--runState : (b, Request {State b} a) -> (b, a)
+--runState pair =
+--    match pair with 
+--        (s, request) ->
+--        match request with
+--            { result } -> (s, result)
+--            { put s' -> resume } -> (s', resume ())
+--            { get () -> resume } -> (s, resume s)
+
+runState : a -> Request {State a} b -> b
+runState v request =
+    match request with
+        { put v' -> resume } -> handle resume () with runState v'
+        { get () -> resume } -> handle resume v with runState v
+        { result } -> result
+
+unique type DirectoryT = Directory (Text, Nat)
+unique type DataRegionT = DataRegion (Nat, Text)
+unique type INodeT = INode Nat Nat
+unique type IListT = IList (Nat, INodeT)
+unique type FileSystemT = FileSystem (List DirectoryT) (List IListT) (List DataRegionT) Nat Nat
+
+
+initialINode : INodeT
+initialINode = INode 0 0
+
+initialDirectory : DirectoryT
+initialDirectory = (Directory ("stdout", 0))
+
+initialDataRegion : DataRegionT
+initialDataRegion = DataRegion (0, "")
+
+initialIList : IListT
+initialIList = IList (0, initialINode)
+
+initialFileSystem : FileSystemT
+initialFileSystem = FileSystem [initialDirectory] [initialIList] [initialDataRegion] 0 0
+
+lookupINode : Nat -> [IListT] -> Either INodeT ()
+lookupINode i ilists =
+    match ilists with
+        [] -> Right ()
+        (IList (i', inode)) +: rest ->
+            if i == i' then Left inode
+            else lookupINode i rest
+
+lookupFName : Text -> [DirectoryT] -> Either Nat ()
+lookupFName name directories =
+    match directories with
+        [] -> Right ()
+        (Directory (name', i)) +: rest ->
+            if name == name' then Left i
+            else lookupFName name rest
+
+modifyINode : Nat -> INodeT -> [IListT] -> [IListT]
+modifyINode i inode ilists =
+    match ilists with
+        [] -> []
+        (IList (i', inode')) +: rest ->
+            if i == i' then (IList (i, inode)) +: rest
+            else (IList (i', inode')) +: modifyINode i inode rest
+
+lookupDataRegion : Nat -> [DataRegionT] -> Either Text ()
+lookupDataRegion i dataRegions =
+    match dataRegions with
+        [] -> Right ()
+        (DataRegion (i', text)) +: rest ->
+            if i == i' then Left text
+            else lookupDataRegion i rest
+
+modifyDataRegion : Nat -> Text -> [DataRegionT] -> [DataRegionT]
+modifyDataRegion i text dataRegions =
+    match dataRegions with
+        [] -> []
+        (DataRegion (i', text')) +: rest ->
+            if i == i' then (DataRegion (i, (text' ++ text))) +: rest
+            else (DataRegion (i', text')) +: modifyDataRegion i text rest
+
+-- fread, implementation of system read
+fread : Nat -> FileSystemT -> Either Text ()
+fread i fs =
+    match fs with
+        FileSystem directories ilists dataRegions _ _ ->
+            match lookupINode i ilists with
+                Left inode ->
+                    match inode with
+                        INode _ dataRegion ->
+                            match lookupDataRegion dataRegion dataRegions with
+                                Left text -> Left text
+                                Right () -> Right ()
+                Right () -> Right ()
+
+-- fwrite, writes to the file system at the given inode with the given text
+fwrite : Nat -> Text -> FileSystemT -> FileSystemT
+fwrite i text fs =
+    match fs with
+        FileSystem directories ilists dataRegions _ _ ->
+            match lookupINode i ilists with
+                Left inode ->
+                    match inode with
+                        INode _ dataRegion ->
+                            FileSystem directories (modifyINode i (INode i dataRegion) ilists) (modifyDataRegion dataRegion text dataRegions) 0 0
+                Right () -> fs
+
+unique ability FileRW
+         where
+                read: Nat -> {FileRW } Text
+                write: (Nat, Text) -> {FileRW } ()
+
+fileRW : Request {FileRW} a ->{State FileSystemT} a
+fileRW result =
+    match result with
+        { read i -> resume } ->
+            let fs = get ()
+                text = fread i fs
+                match text with
+                    Left text -> handle resume text with fileRW
+                    Right () -> handle resume "" with fileRW   -- make this fail
+        { write (i, text) -> resume } ->
+            let fs = get ()
+                fs' = fwrite i text fs
+                put fs'
+                handle resume () with fileRW
+        { result } -> result
+
+echoWrite : Text ->{FileRW} ()
+echoWrite text = write (0, text)
+
+systemIO : Request {BasicIO} a ->{FileRW, State FileSystemT} a
+systemIO result =
+    match result with
+        { echo text -> resume } ->
+            handle write (0, text) with fileRW
+            handle resume () with systemIO
+        { result } -> result
+
+fopen : Text -> FileSystemT -> Nat
+fopen name fs = 
+    match fs with
+        FileSystem directories ilists dataRegions dnext inext ->
+            match lookupFName name directories with
+                Left i -> i
+                Right () -> inext
+
+has : Text -> [DirectoryT] -> Boolean
+has name directories =
+    match directories with
+        [] -> false
+        (Directory (name', i)) +: rest ->
+            if name == name' then true
+            else has name rest
+
+fcreate : Text -> FileSystemT -> (Nat, FileSystemT)
+fcreate name fs = 
+    match fs with 
+        FileSystem directories ilists dataRegions dnext inext ->
+            -- file already exists, overwrite it
+            if has name directories then 
+                let ino = (fopen name fs)
+                    inode = lookupINode ino ilists
+                    match inode with
+                        Left inode -> 
+                            match inode with 
+                                INode ino loc ->
+                                    let dreg' = modifyDataRegion loc "" dataRegions
+                                        (ino , FileSystem directories ilists dreg' dnext inext)
+                        Right () -> (ino, fs) -- unreacable
+            else 
+                let inext' = inext + 1
+                    dnext' = dnext + 1
+                    inode = INode inext dnext
+                    ilists' = (IList (inext, inode)) +: ilists
+                    directories' = (Directory (name, inext)) +: directories
+                    (inext, FileSystem directories' ilists' dataRegions dnext' inext')
+
+unique ability FileCO
+    where
+        open: Text -> {FileCO } Nat
+        close: Nat -> {FileCO } ()
+
+fileCO : Request {FileCO} a ->{FileRW, State FileSystemT} a
+fileCO result =
+    match result with
+        { open name -> resume } ->
+            let fs = get ()
+                (ino, fs') = fcreate name fs
+                put fs'
+                handle resume ino with fileCO
+        { close i -> resume } ->
+            let fs = get ()
+                put fs
+                handle resume () with fileCO
+        { result } -> result
+
+flink: Text -> Text -> FileSystemT -> FileSystemT
+flink src dest fs =
+    match fs with
+        FileSystem directories ilists dataRegions dnext inext ->
+            if has dest directories then
+               fs -- error, file exists
+            else
+                let ino = lookupFName src directories
+                    match ino with
+                        Left ino ->
+                            let directories' = (Directory (dest, ino)) +: directories
+                                inode = lookupINode ino ilists
+                                match inode with
+                                    Left inode ->
+                                        match inode with
+                                            INode ino loc ->
+                                                  let loc' = loc + 1
+                                                      inode' = INode ino loc'
+                                                      ilists' = modifyINode ino inode' ilists
+                                                      FileSystem directories' ilists' dataRegions dnext inext
+                                    Right () -> fs -- unreachable, we know the file exists
+                        Right () -> fs -- no such file src
+
+removeINode : Nat -> [IListT] -> [IListT]
+removeINode i ilists =
+    match ilists with
+        [] -> []
+        (IList (i', inode)) +: rest ->
+            if i == i' then rest
+            else (IList (i', inode)) +: removeINode i rest
+
+removeDataRegion : Nat -> [DataRegionT] -> [DataRegionT]
+removeDataRegion i dataRegions =
+    match dataRegions with
+        [] -> []
+        (DataRegion (i', text)) +: rest ->
+            if i == i' then rest
+            else (DataRegion (i', text)) +: removeDataRegion i rest
+
+removeDirectory : Text -> [DirectoryT] -> [DirectoryT]
+removeDirectory name directories =
+    match directories with
+        [] -> []
+        (Directory (name', i)) +: rest ->
+            if name == name' then rest
+            else (Directory (name', i)) +: removeDirectory name rest
+
+funlink: Text -> FileSystemT -> FileSystemT
+funlink name fs =
+    match fs with
+        FileSystem directories ilists dataRegions dnext inext ->
+            if has name directories then
+                let ino = lookupFName name directories
+                    match ino with
+                        Left ino ->
+                             let directories' = removeDirectory name directories
+                                 inode = lookupINode ino ilists
+                                 match inode with
+                                        Left inode ->
+                                            match inode with
+                                                INode ino loc ->
+                                                    if loc > 1 then
+                                                        let loc' = loc - 1
+                                                            inode' = INode ino loc'
+                                                            ilists' = modifyINode ino inode' ilists
+                                                            FileSystem directories' ilists' dataRegions dnext inext
+                                                    else
+                                                        let ilists' = removeINode ino ilists
+                                                            dataRegions' = removeDataRegion loc dataRegions
+                                                            FileSystem directories' ilists' dataRegions' dnext inext
+                                        Right () -> fs -- unreachable, we know the file exists
+                        Right () -> fs -- no such file src
+            else
+                fs -- no such file
+
+
+unique ability FileLU
+       where
+            link: (Text, Text) -> {FileLU } ()
+            unlink: Text -> {FileLU } ()
+
+fileLU : Request {FileLU} a ->{FileRW, State FileSystemT} a
+fileLU result =
+    match result with
+        { link (src, dest) -> resume } ->
+            let fs = get ()
+                fs' = flink src dest fs
+                put fs'
+                handle resume () with fileLU
+        { unlink name -> resume } ->
+            let fs = get ()
+                fs' = funlink name fs
+                put fs'
+                handle resume () with fileLU
+        { result } -> result
+
+fileIO m = handle (handle (handle !m with fileRW) with fileCO) with fileLU
+
+
+{-
+    pipes
+    ======
+-}
+
+unique ability Await a
+    where
+        await: () -> a
+
+unique ability Yeild a
+    where
+        yeild: a -> ()
+
+pipe : '{Yeild b, e} a -> '{Await b, e} a ->{e} a
+pipe p c = handle c () with
+                (cases
+                    { x } -> x
+                    { await () -> resume } -> copipe resume c p)
+
+copipe : b -> {Await b, e} a -> '{Yeild b, e} a ->{e} a
+copipe c p = handle p () with
+                (cases
+                    { x } -> x
+                    { yeild y -> resume } -> pipe ('resume) c y )
+
+{-
+    Process Syncronization
+    ======================
+-}
+
+unique ability Co 
+    where 
+        ufork: () -> {Co } Nat
+        wait: Nat -> {Co } ()
+        uinterrupt: () -> {Co } ()
+
+unique type ProcessState a = Ready a | Blocked Nat a
+
+ready: [(Nat, a)] -> [(Nat, ProcessState a)]
+ready processes =
+    match processes with
+        [] -> []
+        (pid, process) +: rest -> (pid, Ready process) +: ready rest
+
+blocked: [(Nat, a)] -> [(Nat, ProcessState a)]
+blocked processes =
+    match processes with
+        [] -> []
+        (pid, process) +: rest -> (pid, Blocked pid process) +: blocked rest
+
+processExists: Nat -> [(Nat, ProcessState a)] -> Boolean
+processExists pid processes =
+    match processes with
+        [] -> false
+        (pid', process) +: rest ->
+            if pid == pid' then true
+            else processExists pid rest
+
+runNext : List (Nat, ProcessState a) -> List (Nat, a) -> Nat -> Nat ->{e} List (Nat, a)
+runNext queue done pid pnext = 
+    match queue with
+        []          -> done
+        fst +: rest -> match fst with
+            (pid', Ready resume)         -> handle resume with scheduler rest done pid' pnext
+            (pid', Blocked pid'' resume) -> runNext (rest lib.base.data.List.:+ (pid, Blocked pid' resume)) done pid pnext 
+
+scheduler : List (Nat, ProcessState a) -> List (Nat, a) -> Nat -> Nat -> Request {Co} a -> List (Nat, a)
+scheduler queue done pid pnext proc =
+    match proc with
+        { ufork () -> resume } -> 
+            let resume' = handle resume 0 with scheduler queue done pid pnext
+                pid' = pnext 
+                pnext' = pnext + 1
+                queue' = queue lib.base.data.List.++ ready resume'
+                handle resume pid with scheduler queue' done pid' pnext'
+        { wait pid' -> resume } -> 
+            let resume' = handle resume () with scheduler queue done pid pnext
+                queue' = if processExists pid' queue then
+                             queue lib.base.data.List.++ blocked resume'
+                         else queue ++ ready resume'
+                runNext queue' done pid pnext
+        { uinterrupt () -> resume } -> 
+            let resume' = handle resume () with scheduler queue done pid pnext
+                queue' = queue ++ ready resume'
+                runNext queue' done pid pnext
+        { result } -> runNext queue (done lib.base.data.List.++ [(pid, result)]) pid pnext
+
+timeshare2 : '{Co} a ->{Co} [(Nat, a)] 
+timeshare2 m = handle m () with scheduler [] [] 1 2
+ 
+init : '{e} () ->{e, Co} ()
+init main = let pid = ufork ()
+                if pid == 0 then 
+                    main ()
+                else 
+                    wait pid
+ 
+ {-
+    Util 
+    ======
+-}
+
+--unique ability Logging
+--    where
+--        log: a -> {Logging } ()
+--
+--logHandler : Request {Logging} a -> a
+--logHandler request =
+--    match request with
+--        { log x -> resume } -> putText stdOut x; handle resume () with logHandler
+--        { result } -> result
+
+
+{-
+    Examples
+    =========
+-}
+
+ioAndUsers : a ->{Session, Status, BasicIO} ()
+ioAndUsers _ = 
+    if whoami == "root" then
+        echo "Logged in as root\n";
+        exit 0
+    else
+        echo "Permission denied\n";
+        exit 1
+    
+runIOandUsers _ = handle (handle (handle !ioAndUsers with sessionManager initialEnv) with exitHandler) with basicIO
+    
+ritchie _ = echo "UNIX is basically\n"; echo "a simple operating system\n"; echo "but you have to be a genius to understand the simplicity\n"
+hamlet _ = echo "To be, or not to be,\n"; echo "that is the question:\n"; echo "Wether 'tis nobler in the mind to suffer\n";
+
+forkAndIO : a ->{BasicIO, TimeSharing} ()
+forkAndIO _ = 
+    if fork then
+        !ritchie
+    else
+        !hamlet
+
+runForkAndIO _ = handle (handle !forkAndIO with basicIO) with nondet
+        
+{-
+    Tests
+    ======
+-}
+
+-- Test exiting
+testProgram0 _ = exit 42
+--> handle !testProgram0 with exitHandler
+
+testProgram1 _ =
+    whoami
+--> handle !testProgram1 with whoamiHandler
+
+testProgram2 _ =
+    handle whoami with sessionManager (handle su Alice with sessionManager initialEnv)
+--> handle !testProgram2 with sessionManager initialEnv
+
+proc1 _ = handle [echo "Hello, ", echo "World!"] with basicIO
+proc2 _ = handle [echo "Goodbye, ", echo "Code!"] with basicIO
+
+testProgram3 _ =
+    handle whoami with sessionManager (handle su Bob with sessionManager initialEnv)
+
+testProgram4 _ =
+    if fork then
+        [handle whoami with sessionManager (handle su Bob with sessionManager initialEnv)]
+     else
+        [handle whoami with sessionManager (handle su Alice with sessionManager initialEnv)]
+--> handle !testProgram4 with nondet
+
+--ritchie _ = echo "UNIX is basically\n"; echo "a simple operating system\n"; echo "but you have to be a genius to understand the simplicity\n"
+--hamlet _ = echo "To be, or not to be,\n"; echo "that is the question:\n"; echo "Wether 'tis nobler in the mind to suffer\n";
+
+testProgram5 _ =
+    handle (handle (if fork then [!ritchie] else [!hamlet]) with basicIO) with nondet
+
+testProgram6 _ = timeshare (_ -> (handle (handle (if fork then [!ritchie] else [!hamlet]) with interruptWrite) with basicIO))
+
+testProgram7 _ = handle (get (handle (handle (echo "Hello, World!\n") with systemIO) with fileRW)) with runState initialFileSystem
+
+-- testProgram8 _ = timeshare2 (_ -> (handle (handle (if ufork () == 0 then [!ritchie] else [!hamlet]) with interruptWrite) with basicIO))
 \end{lstlisting}
 
 \section{Extended Implementation}
@@ -3155,7 +3825,7 @@ unix m = handle
 
 The following code was used to profile the effect oriented and conventional
 versions of the code. The code was run with the \texttt{timers} library
-\cite{timers} and the results were recorded in section \ref{effop}.
+\cite{timers} and the results were recorded in Section \ref{effop}.
 
 \begin{lstlisting}[language=unison]
 adduser': [User] -> User -> [User]
